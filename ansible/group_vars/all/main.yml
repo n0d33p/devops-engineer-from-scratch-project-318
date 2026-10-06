@@ -1,4 +1,5 @@
-username: 'wh0am1'
+---
+username: "wh0am1"
 
 app_name: bulletin-board
 docker_image: nxdeep/project-devops-deploy

@@ -1,0 +1,8 @@
+exclude_paths:
+  - .github/
+  - ansible/roles/geerlingguy.docker/
+  - ansible/roles/geerlingguy.nginx/
+  - ansible/group_vars/webservers/vault.yml
+  - ansible/group_vars/localnode/vault.yml
+skip_list:
+  - no-handler

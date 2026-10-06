@@ -1,4 +1,5 @@
-- hosts: webservers
-  become: yes
+- name: Update application image
+  hosts: webservers
+  become: true
   roles:
     - update

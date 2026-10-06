@@ -1,4 +1,5 @@
-- name: configure nginx (app proxy, protected metrics proxy, JSON access log)
+---
+- name: Configure nginx (app proxy, protected metrics proxy, JSON access log)
   ansible.builtin.include_role:
     name: geerlingguy.nginx
   vars:
@@ -49,7 +50,7 @@
             return 404;
           }
 
-- name: create htpasswd file for the metrics endpoint
+- name: Create htpasswd file for the metrics endpoint
   ansible.builtin.copy:
     content: "{{ metrics_user }}:{{ vault_metrics_password | password_hash('sha512', vault_password_salt) }}\n"
     dest: /etc/nginx/.htpasswd_metrics
@@ -57,7 +58,7 @@
     group: www-data
     mode: "0640"
 
-- name: allow the metrics proxy port from the monitoring network only
+- name: Allow the metrics proxy port from the monitoring network only
   community.general.ufw:
     rule: allow
     port: "{{ app_management_port }}"

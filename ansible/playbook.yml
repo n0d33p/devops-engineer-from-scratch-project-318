@@ -1,10 +1,12 @@
-- hosts: localnode
+- name: Create S3 bucket
+  hosts: localnode
   gather_facts: false
   roles:
     - storage
 
-- hosts: webservers
-  become: yes
+- name: Prepare server and deploy the application
+  hosts: webservers
+  become: true
   roles:
     - common
     - node_exporter
