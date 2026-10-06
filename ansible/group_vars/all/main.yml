@@ -19,3 +19,9 @@ db_host: rc1b-pg4nag1lcdvcuumh.mdb.yandexcloud.net
 db_port: 6432
 db_name: bulletins
 db_user: bulletins
+
+node_exporter_version: "1.12.1"
+node_exporter_port: 9100
+monitoring_allowed_cidr: "10.129.0.0/24"
+
+metrics_user: prometheus

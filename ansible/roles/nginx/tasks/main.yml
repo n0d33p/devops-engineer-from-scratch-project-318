@@ -1,8 +1,26 @@
-- name: Configure nginx as a reverse proxy (HTTP only)
+- name: configure nginx (app proxy, protected metrics proxy, JSON access log)
   ansible.builtin.include_role:
     name: geerlingguy.nginx
   vars:
     nginx_remove_default_vhost: true
+    nginx_listen_ipv6: false
+    nginx_access_log: "/var/log/nginx/access.log main buffer=16k flush=5s"
+    nginx_log_format: |-
+      escape=json
+      '{'
+        '"time":"$time_iso8601",'
+        '"remote_addr":"$remote_addr",'
+        '"x_forwarded_for":"$http_x_forwarded_for",'
+        '"host":"$host",'
+        '"request_method":"$request_method",'
+        '"request_uri":"$request_uri",'
+        '"status":$status,'
+        '"body_bytes_sent":$body_bytes_sent,'
+        '"request_time":$request_time,'
+        '"upstream_response_time":"$upstream_response_time",'
+        '"http_referer":"$http_referer",'
+        '"http_user_agent":"$http_user_agent"'
+      '}'
     nginx_vhosts:
       - listen: "80 default_server"
         server_name: "_"
@@ -15,3 +33,33 @@
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
           }
+      - listen: "{{ ansible_default_ipv4.address }}:{{ app_management_port }}"
+        server_name: "_"
+        filename: "metrics.conf"
+        extra_parameters: |
+          allow {{ monitoring_allowed_cidr }};
+          deny all;
+          auth_basic "metrics";
+          auth_basic_user_file /etc/nginx/.htpasswd_metrics;
+          location /actuator/ {
+            proxy_pass http://127.0.0.1:{{ app_management_port }};
+            proxy_set_header Host $host;
+          }
+          location / {
+            return 404;
+          }
+
+- name: create htpasswd file for the metrics endpoint
+  ansible.builtin.copy:
+    content: "{{ metrics_user }}:{{ vault_metrics_password | password_hash('sha512', vault_password_salt) }}\n"
+    dest: /etc/nginx/.htpasswd_metrics
+    owner: root
+    group: www-data
+    mode: "0640"
+
+- name: allow the metrics proxy port from the monitoring network only
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_management_port }}"
+    proto: tcp
+    src: "{{ monitoring_allowed_cidr }}"
