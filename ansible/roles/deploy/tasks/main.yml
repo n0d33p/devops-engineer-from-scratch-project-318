@@ -1,0 +1,72 @@
+- name: create deploy directory
+  ansible.builtin.file:
+    path: "{{ app_deploy_dir }}"
+    state: directory
+    owner: "{{ username }}"
+    group: docker
+    mode: "0750"
+
+- name: create persistent data directory (survives container restarts)
+  ansible.builtin.file:
+    path: "{{ app_data_dir }}"
+    state: directory
+    owner: "{{ username }}"
+    group: docker
+    mode: "0750"
+
+- name: create persistent logs directory
+  ansible.builtin.file:
+    path: "{{ app_logs_dir }}"
+    state: directory
+    owner: "{{ username}}"
+    group: docker
+    mode: "0750"
+
+- name: write docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ app_deploy_dir }}/docker-compose.yml"
+    owner: "{{ username }}"
+    group: docker
+    mode: "0640"
+  notify: recreate app container
+
+- name: write environment file with app secrets
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_deploy_dir}}/.env"
+    owner: "{{ username }}"
+    group: docker
+    mode: "0600"
+  notify: recreate app container
+
+- name: pull the configured image tag
+  community.docker.docker_image:
+    name: "{{ docker_image }}:{{ app_image_tag }}"
+    source: pull
+    force_source: true
+
+- name: make sure the stack is up
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_deploy_dir }}"
+    state: present
+
+- name: apply pending compose/env changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: wait for the app to report healthy
+  ansible.builtin.uri:
+    url: "http://localhost:{{ app_management_port }}/actuator/health"
+    status_code: 200
+  register: health
+  retries: 10
+  delay: 5
+  until: health.status == 200
+
+- name: record currently deployed version
+  ansible.builtin.copy:
+    content: "{{ app_image_tag}}\n"
+    dest: "{{ app_deploy_dir }}/CURRENT_VERSION"
+    owner: "{{ username }}"
+    group: docker
+    mode: "0644"

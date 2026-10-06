@@ -1,0 +1,38 @@
+- name: re-render docker-compose-yml for the requested image tag
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/roles/deploy/templates/docker-compose.yml.j2"
+    dest: "{{ app_deploy_dir }}/docker-compose.yml"
+    owner: "{{ username }}"
+    group: docker
+    mode: "0640"
+
+- name: pull the requested image tag
+  community.docker.docker_image:
+    name: "{{ docker_image }}:{{ app_image_tag }}"
+    source: pull
+    force_source: true
+  register: pulled
+
+- name: recreate the container
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_deploy_dir }}"
+    state: present
+    recreate: always
+  when: pulled.changed
+
+- name: wait for the app to report healthy after the swap
+  ansible.builtin.uri:
+    url: "http://localhost:{{ app_management_port }}/actuator/health"
+    status_code: 200
+  register: health
+  retries: 10
+  delay: 5
+  until: health.status == 200
+
+- name: record currently deployed version
+  ansible.builtin.copy:
+    content: "{{ app_image_tag}}\n"
+    dest: "{{ app_deploy_dir}}/CURRENT_VERSION"
+    owner: "{{ username }}"
+    group: docker
+    mode: "0644"

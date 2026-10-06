@@ -1,0 +1,8 @@
+*.vault_pass
+.vault_pass
+vault_password
+*.pem
+*.key
+*.retry
+ansible/roles/geerlingguy.*
+.ansible/

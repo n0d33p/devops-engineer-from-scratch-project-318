@@ -1,0 +1,11 @@
+- hosts: localnode
+  gather_facts: false
+  roles:
+    - storage
+
+- hosts: webservers
+  become: yes
+  roles:
+    - common
+    - deploy
+    - nginx

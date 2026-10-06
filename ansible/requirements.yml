@@ -1,0 +1,8 @@
+roles:
+  - name: geerlingguy.docker
+  - name: geerlingguy.nginx
+
+collections:
+  - name: community.docker
+  - name: community.general
+  - name: amazon.aws

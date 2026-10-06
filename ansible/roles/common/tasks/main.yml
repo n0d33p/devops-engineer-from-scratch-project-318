@@ -1,0 +1,47 @@
+- name: update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: install docker via geerlingguy.docker role
+  ansible.builtin.include_role:
+    name: geerlingguy.docker
+  vars:
+    docker_install_compose_plugin: true
+
+- name: install python3-docker (required by community.docker modules)
+  ansible.builtin.apt:
+    name: python3-docker
+    state: present
+
+- name: add user
+  ansible.builtin.user:
+    name: "{{ username }}"
+    groups: [docker]
+    append: yes
+    password: "{{ user_password | password_hash('sha512', vault_password_salt) }}"
+  tags: user
+
+- name: install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: allow SSH
+  community.general.ufw:
+    rule: allow
+    name: OpenSSH
+
+- name: allow HTTP/HTTPS
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "80"
+    - "443"
+
+- name: enable ufw and deny default
+  community.general.ufw:
+    state: enabled
+    policy: deny

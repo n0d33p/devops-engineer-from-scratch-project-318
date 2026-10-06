@@ -1,0 +1,17 @@
+services:
+  app:
+    image: "{{ docker_image }}:{{ app_image_tag }}"
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:{{ app_http_port }}:8080"
+      - "127.0.0.1:{{ app_management_port }}:9090"
+    volumes:
+      - "{{ app_data_dir }}:/data"
+      - "{{ app_logs_dir }}:/app/logs"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

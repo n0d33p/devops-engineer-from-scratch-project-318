@@ -1,0 +1,21 @@
+username: 'wh0am1'
+
+app_name: bulletin-board
+docker_image: nxdeep/project-devops-deploy
+app_image_tag: "{{ image_tag | default('latest') }}"
+
+app_deploy_dir: /opt/bulletin-board
+app_data_dir: "{{ app_deploy_dir }}/data"
+app_logs_dir: "{{ app_deploy_dir }}/logs"
+
+app_http_port: 8080
+app_management_port: 9090
+
+s3_bucket_name: bulletins-obs-p4-zayats
+s3_region: ru-central1
+s3_endpoint: https://storage.yandexcloud.net
+
+db_host: rc1b-pg4nag1lcdvcuumh.mdb.yandexcloud.net
+db_port: 6432
+db_name: bulletins
+db_user: bulletins
