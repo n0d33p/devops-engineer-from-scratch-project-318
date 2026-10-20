@@ -16,13 +16,30 @@ s3_bucket_name: bulletins-obs-p4-zayats
 s3_region: ru-central1
 s3_endpoint: https://storage.yandexcloud.net
 
-db_host: rc1b-pg4nag1lcdvcuumh.mdb.yandexcloud.net
+db_host: rc1d-92emca79dukk8kgh.mdb.yandexcloud.net
 db_port: 6432
 db_name: bulletins
 db_user: bulletins
 
 node_exporter_version: "1.12.1"
 node_exporter_port: 9100
-monitoring_allowed_cidr: "10.129.0.0/24"
 
 metrics_user: prometheus
+
+monitoring_allowed_cidr: "10.131.0.18/32"
+
+app_private_ip: "10.130.0.22"
+monitoring_dir: /opt/monitoring
+prometheus_image: "prom/prometheus:v3.13.2"
+prometheus_port: 9090
+prometheus_retention: 15d
+prometheus_web_user: reviewer
+
+prometheus_scrape_jobs:
+  - name: node
+    targets: ["{{ app_private_ip }}:{{ node_exporter_port }}"]
+  - name: app-actuator
+    metrics_path: /actuator/prometheus
+    basic_auth: true
+    targets: ["{{ app_private_ip }}:{{ app_management_port }}"]
+    

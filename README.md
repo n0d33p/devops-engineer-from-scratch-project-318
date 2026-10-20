@@ -6,8 +6,8 @@
 
 ## Ссылки
 
-- Приложение: http://84.201.178.195/
-- Swagger UI: http://84.201.178.195/swagger-ui/index.html
+- Приложение: http://178.154.234.230/
+- Swagger UI: http://178.154.234.230/swagger-ui/index.html
 - Форк приложения: https://github.com/n0d33p/project-devops-deploy
 - Docker-образ: `nxdeep/project-devops-deploy` (Docker Hub)
 
@@ -15,25 +15,25 @@
 
 | Ресурс | Параметры |
 |---|---|
-| App VM `app-vm` | Ubuntu 24.04, 2 vCPU (50%), 2 ГБ RAM, 15 ГБ, зона `ru-central1-b`, статический внешний IP |
-| Managed PostgreSQL `bulletins-db` | 1 хост `b2.medium` (Intel Cascade Lake, 50% vCPU), network-hdd 10 ГБ, без публичного доступа |
+| App VM `app-vm-d` | Ubuntu 24.04, 2 vCPU (50%), 2 ГБ RAM, 15 ГБ, зона `ru-central1-d`, статический внешний IP |
+| Managed PostgreSQL `bulletins-db-d` | 1 хост `b2.medium` (Intel Cascade Lake, 50% vCPU), network-hdd 10 ГБ, без публичного доступа |
 | Object Storage | бакет `bulletins-obs-p4-zayats` |
-| Сеть | `default`, подсеть `default-ru-central1-b` |
+| Сеть | `default`, подсеть `default-ru-central1-d` |
 
 ### Создание ресурсов
 
 ```bash
 # ВМ (cloud-init.yaml с публичным SSH-ключом, см. ниже)
-yc compute instance create --name app-vm --zone ru-central1-b \
+yc compute instance create --name app-vm-d --zone ru-central1-d \
   --platform standard-v3 --cores 2 --core-fraction 50 --memory 2 \
   --create-boot-disk size=15,image-folder-id=standard-images,image-family=ubuntu-2404-lts \
-  --network-interface subnet-name=default-ru-central1-b,nat-ip-version=ipv4 \
+  --network-interface subnet-name=default-ru-central1-d,nat-ip-version=ipv4 \
   --metadata-from-file user-data=cloud-init.yaml
 
 # Кластер PostgreSQL (пароль сгенерировать и положить в Ansible Vault)
-yc managed-postgresql cluster create --name bulletins-db --environment production \
+yc managed-postgresql cluster create --name bulletins-db-d --environment production \
   --network-name default \
-  --host zone-id=ru-central1-b,subnet-id=e2l0b2ksj0hev2no4qfl \
+  --host zone-id=ru-central1-d,subnet-id=fl83l4fqsqtmtcn31070 \
   --resource-preset b2.medium --disk-type network-hdd --disk-size 10 \
   --user name=bulletins,password=<пароль> --database name=bulletins,owner=bulletins
 ```
@@ -70,16 +70,17 @@ make bootstrap                    # роли и коллекции Ansible
 make deploy                       # подготовка сервера + деплой (спросит пароль Vault)
 make update IMAGE_TAG=<тег>       # обновить версию
 make rollback IMAGE_TAG=<тег>     # откат на предыдущий тег
+make promtool                     # проверка правил алертинга (promtool в Docker)
 ```
 
-Требования: Ansible 2.15+, `python3-boto3` (для создания бакета), доступ по SSH к `app-vm`, пароль от Vault.
+Требования: Ansible 2.15+, `python3-boto3` (для создания бакета), доступ по SSH к `app-vm-d` и `monitoring-vm-e`, пароль от Vault.
 
 ## Проверка
 
 ```bash
-curl -i http://84.201.178.195/api/bulletins
-ssh wh0am1@84.201.178.195 'curl -s localhost:9090/actuator/health'
-ssh wh0am1@84.201.178.195 'docker logs bulletin-board-app-1'
+curl -i http://178.154.234.230/api/bulletins
+ssh wh0am1@178.154.234.230 'curl -s localhost:9090/actuator/health'
+ssh wh0am1@178.154.234.230 'docker logs bulletin-board-app-1'
 ```
 ## Метрики (Node Exporter и Actuator)
 
@@ -92,9 +93,9 @@ ssh wh0am1@84.201.178.195 'docker logs bulletin-board-app-1'
 | Метрики хоста | `http://<app-private-ip>:9100/metrics` | UFW: только сеть мониторинга |
 | Health приложения | `http://<app-private-ip>:9090/actuator/health` | Nginx: `allow/deny` + basic-auth, UFW |
 | Метрики приложения | `http://<app-private-ip>:9090/actuator/prometheus` | то же |
-| Сайт и API | `http://84.201.178.195/` | публично |
+| Сайт и API | `http://178.154.234.230/` | публично |
 
-Здесь `<app-private-ip>` — приватный адрес App VM (`10.129.0.21`). Снаружи порты 9100 и 9090 недоступны.
+Здесь `<app-private-ip>` — приватный адрес App VM (`10.130.0.22`). Снаружи порты 9100 и 9090 недоступны.
 
 ### Параметры доступа
 
@@ -103,7 +104,7 @@ ssh wh0am1@84.201.178.195 'docker logs bulletin-board-app-1'
 | `node_exporter_version` | версия Node Exporter | `group_vars/all/main.yml` |
 | `node_exporter_port` | `9100` | `group_vars/all/main.yml` |
 | `app_management_port` | `9090` | `group_vars/all/main.yml` |
-| `monitoring_allowed_cidr` | `10.129.0.0/24` (на шаге с Monitoring VM сузить до её адреса) | `group_vars/all/main.yml` |
+| `monitoring_allowed_cidr` | `10.131.0.18/32` (приватный адрес Monitoring VM) | `group_vars/all/main.yml` |
 | `metrics_user` | `prometheus` | `group_vars/all/main.yml` |
 | `vault_metrics_password` | пароль basic-auth | Ansible Vault |
 
@@ -146,19 +147,89 @@ ssh wh0am1@84.201.178.195 'docker logs bulletin-board-app-1'
 
 ```bash
 systemctl status node_exporter --no-pager
-curl -s http://10.129.0.21:9100/metrics | grep -E '^node_load1 '
-curl -i http://10.129.0.21:9090/actuator/health            # 401 без пароля
-curl -s -u prometheus http://10.129.0.21:9090/actuator/health
-curl -s -u prometheus http://10.129.0.21:9090/actuator/prometheus | head
+curl -s http://10.130.0.22:9100/metrics | grep -E '^node_load1 '
+curl -i http://10.130.0.22:9090/actuator/health            # 401 без пароля
+curl -s -u prometheus http://10.130.0.22:9090/actuator/health
+curl -s -u prometheus http://10.130.0.22:9090/actuator/prometheus | head
 ```
 
 С ноутбука (должен быть таймаут, порты закрыты):
 
 ```bash
-curl --max-time 5 http://84.201.178.195:9100/metrics
-curl --max-time 5 http://84.201.178.195:9090/actuator/health
+curl --max-time 5 http://178.154.234.230:9100/metrics
+curl --max-time 5 http://178.154.234.230:9090/actuator/health
 ```
 
 ### Логи Nginx
 
 Access-лог `/var/log/nginx/access.log` пишется в JSON (поля: `time`, `remote_addr`, `x_forwarded_for`, `host`, `request_method`, `request_uri`, `status`, `body_bytes_sent`, `request_time`, `upstream_response_time`, `http_referer`, `http_user_agent`). Формат задан переменной `nginx_log_format` в роли `ansible/roles/nginx`. Error-лог остаётся текстовым: Nginx не поддерживает JSON-формат для `error_log`.
+
+## Prometheus
+
+Prometheus развёрнут Ansible-ролью `ansible/roles/prometheus` на отдельной ВМ `monitoring-vm-e` (группа `monitoring`, зона `ru-central1-e`, внешний IP `93.77.164.67`, приватный `10.131.0.18`). Из-за аварии зоны `ru-central1-b` в Yandex Cloud инфраструктура проекта развёрнута в зонах `d` и `e`.
+
+- UI: http://93.77.164.67:9090/graph (список таргетов: http://93.77.164.67:9090/targets)
+- Доступ: basic-auth, пользователь `reviewer`, пароль выдаётся проверяющему отдельно.
+
+### Как устроено
+
+- Контейнер Prometheus запускается через docker compose из `/opt/monitoring`, образ `prom/prometheus:v3.13.2`.
+- Конфиг и правила лежат в каталоге `/opt/monitoring/prometheus/config` (bind mount, только чтение), данные TSDB в отдельном volume `prometheus_data`.
+- Отдельная Docker-сеть `monitoring`, к ней позже подключатся Grafana и Loki.
+- `prometheus.yml` генерируется из шаблона по списку `prometheus_scrape_jobs` в `ansible/group_vars/all/main.yml`. Чтобы добавить таргет, достаточно добавить элемент в этот список и выполнить `make deploy`.
+- Правила алертинга: `ansible/roles/prometheus/files/alerts.yml` (`InstanceDown`, `NginxServiceDown`, `HighLoad`, `LowMemory`, `LowDiskSpace`). Проверка: `make promtool`.
+- Секреты в Ansible Vault: `vault_prometheus_web_password_hash` (хэш пароля UI), `vault_metrics_password` (пароль для сбора метрик приложения).
+
+### Таргеты
+
+| Job | Адрес | Что собирает |
+|---|---|---|
+| `node` | `10.130.0.22:9100` | метрики хоста (Node Exporter) |
+| `app-actuator` | `10.130.0.22:9090/actuator/prometheus` | метрики приложения через Nginx, basic-auth |
+
+### Безопасность
+
+- Security Group `monitoring-sg` разрешает входящий трафик только на порты 22 (SSH) и 9090 (Prometheus).
+- Порт 9090 защищён basic-auth. Docker публикует порты в обход UFW, поэтому защита основана на Security Group и авторизации.
+- На App VM порты 9100 и 9090 открыты только для приватного адреса Monitoring VM (UFW и `allow/deny` в Nginx).
+
+### Проверка
+
+```bash
+curl -s -u reviewer http://93.77.164.67:9090/api/v1/targets | python3 -m json.tool | grep -E '"(job|health)"'
+curl -s -u reviewer --data-urlencode 'query=up' http://93.77.164.67:9090/api/v1/query
+```
+
+Для обоих таргетов `up == 1`; то же видно в `/graph` по запросу `up`.
+
+### Создание Monitoring VM
+
+```bash
+yc vpc security-group create --name monitoring-sg --network-name default \
+  --rule "direction=ingress,port=22,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
+  --rule "direction=ingress,port=9090,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
+  --rule "direction=egress,from-port=0,to-port=65535,protocol=any,v4-cidrs=[0.0.0.0/0]"
+
+yc compute instance create --name monitoring-vm-e --zone ru-central1-e --platform standard-v3 \
+  --cores 2 --core-fraction 20 --memory 4 \
+  --create-boot-disk size=10,image-folder-id=standard-images,image-family=ubuntu-2404-lts \
+  --network-interface subnet-name=default-ru-central1-e,nat-ip-version=ipv4,security-group-ids=<ID monitoring-sg> \
+  --metadata-from-file user-data=cloud-init.yaml
+```
+
+### Создание Monitoring VM
+
+```bash
+yc vpc security-group create --name monitoring-sg --network-name default \
+  --rule "direction=ingress,port=22,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
+  --rule "direction=ingress,port=9090,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
+  --rule "direction=egress,from-port=0,to-port=65535,protocol=any,v4-cidrs=[0.0.0.0/0]"
+
+yc compute instance create --name monitoring-vm-e --zone ru-central1-e --platform standard-v3 \
+  --cores 2 --core-fraction 20 --memory 4 \
+  --create-boot-disk size=10,image-folder-id=standard-images,image-family=ubuntu-2404-lts \
+  --network-interface subnet-name=default-ru-central1-e,nat-ip-version=ipv4,security-group-ids=<ID monitoring-sg> \
+  --metadata-from-file user-data=cloud-init.yaml
+```
+
+Адрес в `ansible/inventory.ini` (группа `monitoring`) и приватный адрес в `monitoring_allowed_cidr` нужно обновить после создания ВМ.

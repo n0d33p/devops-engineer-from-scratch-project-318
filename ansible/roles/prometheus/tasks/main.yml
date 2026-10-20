@@ -1,0 +1,73 @@
+- name: Create monitoring directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ monitoring_dir }}"
+    - "{{ monitoring_dir }}/prometheus"
+    - "{{ monitoring_dir }}/prometheus/config"
+    - "{{ monitoring_dir }}/prometheus/config/rules"
+    - "{{ monitoring_dir }}/prometheus/config/secrets"
+
+- name: Write prometheus.yml
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ monitoring_dir }}/prometheus/config/prometheus.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Copy alert rules
+  ansible.builtin.copy:
+    src: alerts.yml
+    dest: "{{ monitoring_dir }}/prometheus/config/rules/alerts.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Write web config with the basic-auth hash
+  ansible.builtin.template:
+    src: web.yml.j2
+    dest: "{{ monitoring_dir }}/prometheus/config/web.yml"
+    owner: "65534"
+    group: "65534"
+    mode: "0400"
+  no_log: true
+  notify: Restart prometheus
+
+- name: Write the password used to scrape the application metrics
+  ansible.builtin.copy:
+    content: "{{ vault_metrics_password }}"
+    dest: "{{ monitoring_dir }}/prometheus/config/secrets/metrics_password"
+    owner: "65534"
+    group: "65534"
+    mode: "0400"
+  no_log: true
+  notify: Restart prometheus
+
+- name: Write docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ monitoring_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Start the monitoring stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ monitoring_dir }}"
+    state: present
+
+- name: Wait for Prometheus to answer
+  ansible.builtin.uri:
+    url: "http://localhost:{{ prometheus_port }}/-/healthy"
+    status_code: [200, 401]
+  register: prometheus_health
+  retries: 10
+  delay: 5
+  until: prometheus_health.status in [200, 401]
+  

@@ -15,4 +15,7 @@ rollback:
 	@test "$(IMAGE_TAG)" != "latest" || (echo "Usage: make rollback IMAGE_TAG=<previous-stable-tag>"; exit 1)
 	cd $(ANSIBLE_DIR) && ansible-playbook update.yml --ask-vault-pass -e image_tag=$(IMAGE_TAG)
 
-.PHONY: bootstrap deploy update rollback
+.PHONY: bootstrap deploy update rollback promtool
+
+promtool:
+	docker run --rm --entrypoint promtool -v "$(CURDIR)/ansible/roles/prometheus/files:/rules:ro" prom/prometheus:v3.13.2 check rules /rules/alerts.yml

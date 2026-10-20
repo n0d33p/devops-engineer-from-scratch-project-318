@@ -12,3 +12,10 @@
     - node_exporter
     - deploy
     - nginx
+
+- name: Deploy Prometheus on the monitoring server
+  hosts: monitoring
+  become: true
+  roles:
+    - common
+    - prometheus

@@ -1,0 +1,24 @@
+services:
+  prometheus:
+    image: "{{ prometheus_image }}"
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.config.file=/etc/prometheus/web.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time={{ prometheus_retention }}
+    ports:
+      - "{{ prometheus_port }}:9090"
+    volumes:
+      - ./prometheus/config:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    networks:
+      - monitoring
+
+volumes:
+  prometheus_data:
+
+networks:
+  monitoring:
+    name: monitoring

@@ -1,0 +1,44 @@
+groups:
+  - name: availability
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Target {{ $labels.instance }} ({{ $labels.job }}) is down"
+
+      - alert: NginxServiceDown
+        expr: 'node_systemd_unit_state{name="nginx.service",state="active"} == 0'
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "nginx is not active on {{ $labels.instance }}"
+
+  - name: resources
+    rules:
+      - alert: HighLoad
+        expr: node_load5 > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High load average on {{ $labels.instance }}"
+
+      - alert: LowMemory
+        expr: 'node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.1'
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 10% memory available on {{ $labels.instance }}"
+
+      - alert: LowDiskSpace
+        expr: 'node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} < 0.15'
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 15% disk space left on {{ $labels.instance }}"
