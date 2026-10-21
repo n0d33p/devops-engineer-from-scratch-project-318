@@ -1,5 +1,4 @@
----
-- name: Configure nginx (app proxy, protected metrics proxy, JSON access log)
+- name: Configure nginx (app proxy, protected metrics proxy, stub_status, JSON access log)
   ansible.builtin.include_role:
     name: geerlingguy.nginx
   vars:
@@ -48,6 +47,15 @@
           }
           location / {
             return 404;
+          }
+      - listen: "127.0.0.1:{{ nginx_stub_status_port }}"
+        server_name: "localhost"
+        filename: "stub_status.conf"
+        extra_parameters: |
+          location = /stub_status {
+            stub_status;
+            allow 127.0.0.1;
+            deny all;
           }
 
 - name: Create htpasswd file for the metrics endpoint

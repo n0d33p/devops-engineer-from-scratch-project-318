@@ -320,3 +320,27 @@ make dashboards       # выкатить правила и дашборды на
 ```
 
 > Примечание: Prometheus тоже вычисляет правила из `ansible/roles/monitoring/files/alerts.yml` (`InstanceDown` и другие), поэтому на Status Page рядом с правилами Grafana видны и они. Alertmanager в проекте не используется: письма отправляет только Grafana Alerting.
+
+## Метрики Nginx (nginx-prometheus-exporter)
+
+- `stub_status` включён в роли `ansible/roles/nginx`: отдельный сервер на `127.0.0.1:8081`, путь `/stub_status`, доступ только с `127.0.0.1` (`allow 127.0.0.1; deny all`). Снаружи страница недоступна.
+- Роль `ansible/roles/nginx_exporter` ставит бинарь `nginx-prometheus-exporter` (версия в переменной `nginx_exporter_version`), systemd-юнит `nginx_exporter.service` с `Restart=always` и автозапуском. Экспортёр читает `stub_status` и отдаёт метрики на `<приватный IP App VM>:9113`; порт открыт в UFW только для адреса Monitoring VM.
+- В `prometheus.yml` добавлен job `nginx` (список таргетов в `prometheus_scrape_jobs`).
+- Дашборд: http://93.77.167.172:3000/d/nginx (RPS, активные соединения, reading/writing/waiting, `nginx_up`). JSON: `ansible/roles/monitoring/files/dashboards/nginx.json`, генерируется `scripts/gen_nginx_dashboard.py`.
+
+Коды ответов и latency из метрик Nginx получить нельзя: открытая версия отдаёт только счётчики соединений и общее число запросов. Поэтому они строятся на метриках приложения (дашборд «HTTP: коды ответов и latency»), а позже их можно взять из access-логов через Loki.
+
+### Проверка
+
+```bash
+# stub_status (только с App VM)
+ssh wh0am1@178.154.234.125 'curl -s http://127.0.0.1:8081/stub_status'
+# метрики экспортёра (только с App VM или Monitoring VM)
+ssh wh0am1@178.154.234.125 'curl -s http://10.130.0.22:9113/metrics | grep -E "^nginx_(up|connections|http)"'
+# конфигурация Prometheus
+make promtool-config
+# таргет в Prometheus
+curl -s -u reviewer --data-urlencode 'query=nginx_up' http://93.77.167.172:9090/api/v1/query
+```
+
+![Nginx](assets/dashboard-nginx.png)

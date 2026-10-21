@@ -1,0 +1,3 @@
+nginx_exporter_base_url: "https://github.com/nginx/nginx-prometheus-exporter/releases/download/v{{ nginx_exporter_version }}"
+nginx_exporter_archive: "nginx-prometheus-exporter_{{ nginx_exporter_version }}_linux_amd64.tar.gz"
+nginx_exporter_unpack_dir: "/tmp/nginx-prometheus-exporter-{{ nginx_exporter_version }}"

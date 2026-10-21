@@ -12,6 +12,7 @@
     - node_exporter
     - deploy
     - nginx
+    - nginx_exporter
 
 - name: Deploy the monitoring stack (Prometheus, Grafana)
   hosts: monitoring

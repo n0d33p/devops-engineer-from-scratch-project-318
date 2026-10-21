@@ -42,6 +42,8 @@ prometheus_scrape_jobs:
     metrics_path: /actuator/prometheus
     basic_auth: true
     targets: ["{{ app_private_ip }}:{{ app_management_port }}"]
+  - name: nginx
+    targets: ["{{ app_private_ip }}:{{ nginx_exporter_port }}"]
 
 grafana_image: "grafana/grafana:12.0.0"
 grafana_port: 3000
@@ -51,3 +53,7 @@ grafana_anonymous_enabled: true
 grafana_root_url: "http://93.77.167.172:3000/"
 smtp_host: "smtp.yandex.ru:465"
 smtp_from_name: "Grafana Alerts"
+
+nginx_exporter_version: "1.5.3"
+nginx_exporter_port: 9113
+nginx_stub_status_port: 8081
