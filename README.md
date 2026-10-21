@@ -6,8 +6,8 @@
 
 ## Ссылки
 
-- Приложение: http://178.154.234.230/
-- Swagger UI: http://178.154.234.230/swagger-ui/index.html
+- Приложение: http://178.154.234.125/
+- Swagger UI: http://178.154.234.125/swagger-ui/index.html
 - Форк приложения: https://github.com/n0d33p/project-devops-deploy
 - Docker-образ: `nxdeep/project-devops-deploy` (Docker Hub)
 
@@ -78,9 +78,9 @@ make promtool                     # проверка правил алертин
 ## Проверка
 
 ```bash
-curl -i http://178.154.234.230/api/bulletins
-ssh wh0am1@178.154.234.230 'curl -s localhost:9090/actuator/health'
-ssh wh0am1@178.154.234.230 'docker logs bulletin-board-app-1'
+curl -i http://178.154.234.125/api/bulletins
+ssh wh0am1@178.154.234.125 'curl -s localhost:9090/actuator/health'
+ssh wh0am1@178.154.234.125 'docker logs bulletin-board-app-1'
 ```
 ## Метрики (Node Exporter и Actuator)
 
@@ -93,7 +93,7 @@ ssh wh0am1@178.154.234.230 'docker logs bulletin-board-app-1'
 | Метрики хоста | `http://<app-private-ip>:9100/metrics` | UFW: только сеть мониторинга |
 | Health приложения | `http://<app-private-ip>:9090/actuator/health` | Nginx: `allow/deny` + basic-auth, UFW |
 | Метрики приложения | `http://<app-private-ip>:9090/actuator/prometheus` | то же |
-| Сайт и API | `http://178.154.234.230/` | публично |
+| Сайт и API | `http://178.154.234.125/` | публично |
 
 Здесь `<app-private-ip>` — приватный адрес App VM (`10.130.0.22`). Снаружи порты 9100 и 9090 недоступны.
 
@@ -156,8 +156,8 @@ curl -s -u prometheus http://10.130.0.22:9090/actuator/prometheus | head
 С ноутбука (должен быть таймаут, порты закрыты):
 
 ```bash
-curl --max-time 5 http://178.154.234.230:9100/metrics
-curl --max-time 5 http://178.154.234.230:9090/actuator/health
+curl --max-time 5 http://178.154.234.125:9100/metrics
+curl --max-time 5 http://178.154.234.125:9090/actuator/health
 ```
 
 ### Логи Nginx
@@ -166,9 +166,9 @@ Access-лог `/var/log/nginx/access.log` пишется в JSON (поля: `tim
 
 ## Prometheus
 
-Prometheus развёрнут Ansible-ролью `ansible/roles/prometheus` на отдельной ВМ `monitoring-vm-e` (группа `monitoring`, зона `ru-central1-e`, внешний IP `93.77.164.67`, приватный `10.131.0.18`). Из-за аварии зоны `ru-central1-b` в Yandex Cloud инфраструктура проекта развёрнута в зонах `d` и `e`.
+Prometheus развёрнут Ansible-ролью `ansible/roles/prometheus` на отдельной ВМ `monitoring-vm-e` (группа `monitoring`, зона `ru-central1-e`, внешний IP `93.77.167.172`, приватный `10.131.0.18`). Из-за аварии зоны `ru-central1-b` в Yandex Cloud инфраструктура проекта развёрнута в зонах `d` и `e`.
 
-- UI: http://93.77.164.67:9090/graph (список таргетов: http://93.77.164.67:9090/targets)
+- UI: http://93.77.167.172:9090/graph (список таргетов: http://93.77.167.172:9090/targets)
 - Доступ: basic-auth, пользователь `reviewer`, пароль выдаётся проверяющему отдельно.
 
 ### Как устроено
@@ -196,8 +196,8 @@ Prometheus развёрнут Ansible-ролью `ansible/roles/prometheus` на
 ### Проверка
 
 ```bash
-curl -s -u reviewer http://93.77.164.67:9090/api/v1/targets | python3 -m json.tool | grep -E '"(job|health)"'
-curl -s -u reviewer --data-urlencode 'query=up' http://93.77.164.67:9090/api/v1/query
+curl -s -u reviewer http://93.77.167.172:9090/api/v1/targets | python3 -m json.tool | grep -E '"(job|health)"'
+curl -s -u reviewer --data-urlencode 'query=up' http://93.77.167.172:9090/api/v1/query
 ```
 
 Для обоих таргетов `up == 1`; то же видно в `/graph` по запросу `up`.
