@@ -10,15 +10,18 @@
 - Swagger UI: http://178.154.234.125/swagger-ui/index.html
 - Форк приложения: https://github.com/n0d33p/project-devops-deploy
 - Docker-образ: `nxdeep/project-devops-deploy` (Docker Hub)
+- Prometheus: http://93.77.167.172:9090/graph (basic-auth, см. раздел «Prometheus»)
+- Grafana: http://93.77.167.172:3000 (дашборды в папке Observability: Status Page, Nginx, HTTP, состояние приложения, системные ресурсы)
 
 ## Инфраструктура (Yandex Cloud)
 
 | Ресурс | Параметры |
 |---|---|
-| App VM `app-vm-d` | Ubuntu 24.04, 2 vCPU (50%), 2 ГБ RAM, 15 ГБ, зона `ru-central1-d`, статический внешний IP |
-| Managed PostgreSQL `bulletins-db-d` | 1 хост `b2.medium` (Intel Cascade Lake, 50% vCPU), network-hdd 10 ГБ, без публичного доступа |
+| App VM `app-vm-d` | Ubuntu 24.04, 2 vCPU (50%), 2 ГБ RAM, 15 ГБ, зона `ru-central1-d`, внешний IP 178.154.234.125 (статический) |
+| Monitoring VM `monitoring-vm-e` | Ubuntu 24.04, 2 vCPU (20%), 4 ГБ RAM, 10 ГБ, зона `ru-central1-e`, внешний IP 93.77.167.172 (статический) |
+| Managed PostgreSQL `bulletins-db-d` | 1 хост `b2.medium` (Intel Cascade Lake, 50% vCPU), network-hdd 10 ГБ, зона `ru-central1-d`, без публичного доступа |
 | Object Storage | бакет `bulletins-obs-p4-zayats` |
-| Сеть | `default`, подсеть `default-ru-central1-d` |
+| Сеть | `default`, подсети `default-ru-central1-d` и `default-ru-central1-e`, Security Group `monitoring-sg` |
 
 ### Создание ресурсов
 
@@ -53,12 +56,38 @@ users:
 
 Бакет создаёт Ansible-роль `storage`.
 
+### Создание Monitoring VM
+
+```bash
+yc vpc security-group create --name monitoring-sg --network-name default \
+  --rule "direction=ingress,port=22,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
+  --rule "direction=ingress,port=9090,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
+  --rule "direction=ingress,port=3000,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
+  --rule "direction=egress,from-port=0,to-port=65535,protocol=any,v4-cidrs=[0.0.0.0/0]"
+
+yc compute instance create --name monitoring-vm-e --zone ru-central1-e --platform standard-v3 \
+  --cores 2 --core-fraction 20 --memory 4 \
+  --create-boot-disk size=10,image-folder-id=standard-images,image-family=ubuntu-2404-lts \
+  --network-interface subnet-name=default-ru-central1-e,nat-ip-version=ipv4,security-group-ids=<ID monitoring-sg> \
+  --metadata-from-file user-data=cloud-init.yaml
+```
+
+Внешние адреса обеих ВМ закрепляются как статические:
+
+```bash
+yc vpc address update --id <ID адреса> --reserved=true
+```
+
+После создания ВМ нужно обновить адреса в `ansible/inventory.ini` (группы `webservers` и `monitoring`), а приватные адреса `app_private_ip` и `monitoring_allowed_cidr` в `ansible/group_vars/all/main.yml`.
+
 ## Ansible
 
 Всё лежит в каталоге `ansible/`:
 
 - `playbook.yml` — подготовка сервера и деплой, `update.yml` — обновление версии образа;
-- `roles/common` (Docker, пользователь, UFW), `roles/deploy` (compose, `.env`, проверка health), `roles/nginx` (reverse proxy), `roles/storage` (бакет), `roles/update`;
+- `roles/common` (Docker, пользователь, UFW), `roles/deploy` (compose, `.env`, проверка health), `roles/nginx` (reverse proxy, JSON-логи, `stub_status`), `roles/storage` (бакет), `roles/update`;
+- `roles/node_exporter` и `roles/nginx_exporter` (экспортёры метрик под systemd), `roles/monitoring` (Prometheus, Grafana, алертинг);
+- `inventory.ini` — группы `webservers` (App VM), `monitoring` (Monitoring VM) и `localnode` (создание бакета с локальной машины);
 - `group_vars/all/main.yml` — несекретные переменные, `group_vars/*/vault.yml` — секреты в Ansible Vault.
 
 Приложение запускается с профилем `prod` и подключается к PostgreSQL по TLS (`sslmode=require`). Actuator в контейнере слушает только 127.0.0.1:9090, наружу метрики отдаёт Nginx (см. раздел «Метрики»)
@@ -82,6 +111,7 @@ curl -i http://178.154.234.125/api/bulletins
 ssh wh0am1@178.154.234.125 'curl -s localhost:9090/actuator/health'
 ssh wh0am1@178.154.234.125 'docker logs bulletin-board-app-1'
 ```
+
 ## Метрики (Node Exporter и Actuator)
 
 Роль `ansible/roles/node_exporter` ставит Node Exporter как systemd-сервис (пользователь `node_exporter`, бинарник в `/usr/local/bin`, автозапуск и перезапуск при изменении бинарника или юнита). Метрики приложения отдаёт Spring Actuator, наружу их проксирует Nginx.
@@ -175,9 +205,9 @@ Prometheus развёрнут Ansible-ролью `ansible/roles/monitoring` на
 
 - Контейнер Prometheus запускается через docker compose из `/opt/monitoring`, образ `prom/prometheus:v3.13.2`.
 - Конфиг и правила лежат в каталоге `/opt/monitoring/prometheus/config` (bind mount, только чтение), данные TSDB в отдельном volume `prometheus_data`.
-- Отдельная Docker-сеть `monitoring`, к ней позже подключатся Grafana и Loki.
+- Отдельная Docker-сеть `monitoring`, к ней подключена Grafana, позже добавится Loki.
 - `prometheus.yml` генерируется из шаблона по списку `prometheus_scrape_jobs` в `ansible/group_vars/all/main.yml`. Чтобы добавить таргет, достаточно добавить элемент в этот список и выполнить `make deploy`.
-- Правила алертинга: `ansible/roles/monitoring/files/alerts.yml` (`InstanceDown`, `NginxServiceDown`, `HighLoad`, `LowMemory`, `LowDiskSpace`). Проверка: `make promtool`.
+- Правила алертинга: `ansible/roles/monitoring/files/alerts.yml` (`InstanceDown`, `NginxServiceDown`, `HighLoad`, `LowMemory`, `LowDiskSpace`). Проверка: `make promtool` (правила) и `make promtool-config` (конфигурация).
 - Секреты в Ansible Vault: `vault_prometheus_web_password_hash` (хэш пароля UI), `vault_metrics_password` (пароль для сбора метрик приложения).
 
 ### Таргеты
@@ -189,9 +219,9 @@ Prometheus развёрнут Ansible-ролью `ansible/roles/monitoring` на
 
 ### Безопасность
 
-- Security Group `monitoring-sg` разрешает входящий трафик только на порты 22 (SSH) и 9090 (Prometheus).
+- Security Group `monitoring-sg` разрешает входящий трафик только на порты 22 (SSH), 9090 (Prometheus) и 3000 (Grafana).
 - Порт 9090 защищён basic-auth. Docker публикует порты в обход UFW, поэтому защита основана на Security Group и авторизации.
-- На App VM порты 9100 и 9090 открыты только для приватного адреса Monitoring VM (UFW и `allow/deny` в Nginx).
+- На App VM порты 9100 (Node Exporter), 9113 (Nginx exporter) и 9090 (метрики приложения) открыты только для приватного адреса Monitoring VM (UFW; для 9090 дополнительно `allow/deny` в Nginx).
 
 ### Проверка
 
@@ -202,43 +232,13 @@ curl -s -u reviewer --data-urlencode 'query=up' http://93.77.167.172:9090/api/v1
 
 Для обоих таргетов `up == 1`; то же видно в `/graph` по запросу `up`.
 
-### Создание Monitoring VM
-
-```bash
-yc vpc security-group create --name monitoring-sg --network-name default \
-  --rule "direction=ingress,port=22,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
-  --rule "direction=ingress,port=9090,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
-  --rule "direction=egress,from-port=0,to-port=65535,protocol=any,v4-cidrs=[0.0.0.0/0]"
-
-yc compute instance create --name monitoring-vm-e --zone ru-central1-e --platform standard-v3 \
-  --cores 2 --core-fraction 20 --memory 4 \
-  --create-boot-disk size=10,image-folder-id=standard-images,image-family=ubuntu-2404-lts \
-  --network-interface subnet-name=default-ru-central1-e,nat-ip-version=ipv4,security-group-ids=<ID monitoring-sg> \
-  --metadata-from-file user-data=cloud-init.yaml
-```
-
-### Создание Monitoring VM
-
-```bash
-yc vpc security-group create --name monitoring-sg --network-name default \
-  --rule "direction=ingress,port=22,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
-  --rule "direction=ingress,port=9090,protocol=tcp,v4-cidrs=[0.0.0.0/0]" \
-  --rule "direction=egress,from-port=0,to-port=65535,protocol=any,v4-cidrs=[0.0.0.0/0]"
-
-yc compute instance create --name monitoring-vm-e --zone ru-central1-e --platform standard-v3 \
-  --cores 2 --core-fraction 20 --memory 4 \
-  --create-boot-disk size=10,image-folder-id=standard-images,image-family=ubuntu-2404-lts \
-  --network-interface subnet-name=default-ru-central1-e,nat-ip-version=ipv4,security-group-ids=<ID monitoring-sg> \
-  --metadata-from-file user-data=cloud-init.yaml
-```
-
-Адрес в `ansible/inventory.ini` (группа `monitoring`) и приватный адрес в `monitoring_allowed_cidr` нужно обновить после создания ВМ.
 
 ## Grafana
 
 - URL: http://93.77.167.172:3000
 - Администратор: `admin`, пароль хранится в Ansible Vault (`vault_grafana_admin_password`), в репозитории его нет.
 - Анонимный просмотр включён (роль Viewer, переменная `grafana_anonymous_enabled`); менять дашборды может только администратор.
+- UI доступен по HTTP на порту 3000 (правило в Security Group `monitoring-sg`), TLS не настроен. Поэтому вход под `admin` лучше выполнять из доверенной сети, а анонимный доступ даёт только просмотр метрик.
 - Контейнер Grafana запускается в том же compose-проекте, что и Prometheus. Данные лежат в volume `grafana_data`, провижининг (источники данных и дашборды) в каталоге `/opt/monitoring/grafana` на сервере.
 - Источники данных описаны в `ansible/roles/monitoring/templates/grafana-datasources.yml.j2` (Prometheus и Loki). Пароль для Prometheus берётся из переменной окружения контейнера, которую Ansible собирает из Vault.
 - Дашборды лежат в `ansible/roles/monitoring/files/dashboards/` и генерируются скриптом `scripts/gen_dashboards.py`.
