@@ -65,6 +65,8 @@ def dashboard(uid, title, metric, panels):
             "targets": [dict(t, datasource=DS, refId=chr(65 + n)) for n, t in enumerate(p["queries"])],
             "fieldConfig": {"defaults": defaults, "overrides": []},
         })
+        if "options" in p:
+            items[-1]["options"] = p["options"]
         x += p["w"]
         row_h = max(row_h, p["h"])
     data = {

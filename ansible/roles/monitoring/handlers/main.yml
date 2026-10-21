@@ -3,3 +3,11 @@
     project_src: "{{ monitoring_dir }}"
     state: present
     recreate: always
+
+- name: Restart grafana
+  community.docker.docker_compose_v2:
+    project_src: "{{ monitoring_dir }}"
+    services:
+      - grafana
+    state: restarted
+  tags: dashboards

@@ -265,3 +265,56 @@ make dashboards       # выкатить их на сервер монитори
 ```
 
 Дашборды провижинятся без права правки через интерфейс (`allowUiUpdates: false`), поэтому изменения вносятся в скрипт и выкатываются командами выше.
+
+## Алертинг (Grafana Alerting)
+
+### Канал уведомлений
+
+Уведомления уходят письмом через SMTP Яндекс Почты (contact point `email-oncall`). Секреты лежат в Ansible Vault: `vault_smtp_user` (логин и адрес отправителя), `vault_smtp_password` (пароль приложения Яндекс ID), `vault_alert_recipient` (адрес получателя); в репозитории их нет. Контейнер Grafana получает их переменными окружения из `.env`, который собирает Ansible.
+
+- Contact point и политика уведомлений: `ansible/roles/monitoring/files/grafana-alerting/contact-points.yml` (получатель берётся из переменной `$ALERT_EMAIL_TO`).
+- Политика: алерты группируются по `alertname` и `service`, повторное напоминание каждые 4 часа.
+
+Как заменить адрес получателя или пароль: изменить значение в Vault (`ansible-vault edit ansible/group_vars/servers/vault.yml`) и выполнить `make deploy`.
+
+### Правила
+
+Правила лежат в репозитории (`ansible/roles/monitoring/files/grafana-alerting/alert-rules.yml`) и генерируются скриптом `scripts/gen_alerts.py`. Посмотреть их: Grafana, меню Alerting, Alert rules (папка Observability).
+
+| Правило | Условие | `for` | severity | service |
+|---|---|---|---|---|
+| Приложение недоступно | `up{job="app-actuator"} < 1` | 2m | critical | app |
+| Node Exporter недоступен | `up{job="node"} < 1` | 2m | critical | host |
+| Системный сервис остановлен | nginx или docker не `active` | 2m | critical | host |
+| Метрики перестали поступать | `absent(node_load1)` или `absent(process_uptime_seconds)` | 5m | warning | monitoring |
+| Много ответов 5xx | доля `status=~"5.."` из `http_server_requests_seconds_count` > 5% | 5m | critical | app |
+| Высокая задержка ответов | p95 по `http_server_requests_seconds_bucket` > 1 с | 5m | warning | app |
+| Высокая загрузка CPU | CPU > 85% | 10m | warning | host |
+| Мало свободной памяти | занято > 90% | 10m | warning | host |
+| Заканчивается место на диске | `/` заполнен > 85% | 5m | warning | host |
+
+Параметр `for` защищает от алертов на кратковременные всплески. Для правил по трафику при отсутствии запросов состояние `OK`, а не авария.
+
+### Status Page
+
+Дашборд `Status Page` (папка Observability): состояние приложения и сервисов (зелёный UP, красный DOWN), ключевые показатели и список активных алертов.
+
+### Как вызвать тестовый алерт
+
+1. Остановить Node Exporter на App VM: `ssh wh0am1@178.154.234.125 'sudo systemctl stop node_exporter'`.
+2. Через 3–5 минут правило «Node Exporter недоступен» перейдёт в Firing (Alerting, Alert rules), придёт письмо `[FIRING:1]`, на Status Page панель станет красной.
+3. Вернуть: `ssh wh0am1@178.154.234.125 'sudo systemctl start node_exporter'`. Через пару минут придёт письмо `[RESOLVED]`.
+
+Проверить сам канал без аварии: Alerting, Contact points, `email-oncall`, Test.
+
+![Алерт Firing](assets/alert-firing.png)
+![Письмо с алертом](assets/alert-email.png)
+![Status Page](assets/status-page.png)
+
+### Обновление правил
+
+```bash
+make gen-alerts       # пересобрать правила из scripts/gen_alerts.py
+make gen-dashboards   # пересобрать дашборды и Status Page
+make dashboards       # выкатить правила и дашборды на сервер мониторинга
+```

@@ -15,13 +15,17 @@ rollback:
 	@test "$(IMAGE_TAG)" != "latest" || (echo "Usage: make rollback IMAGE_TAG=<previous-stable-tag>"; exit 1)
 	cd $(ANSIBLE_DIR) && ansible-playbook update.yml --ask-vault-pass -e image_tag=$(IMAGE_TAG)
 
-.PHONY: bootstrap deploy update rollback promtool gen-dashboards dashboards
+.PHONY: bootstrap deploy update rollback promtool gen-dashboards dashboards gen-alerts
 
 promtool:
 	docker run --rm --entrypoint promtool -v "$(CURDIR)/ansible/roles/monitoring/files:/rules:ro" prom/prometheus:v3.13.2 check rules /rules/alerts.yml
 
 gen-dashboards:
 	python3 scripts/gen_dashboards.py
+	python3 scripts/gen_status_page.py
 
 dashboards:
 	cd $(ANSIBLE_DIR) && ansible-playbook playbook.yml --ask-vault-pass --limit monitoring --tags dashboards
+
+gen-alerts:
+	python3 scripts/gen_alerts.py
