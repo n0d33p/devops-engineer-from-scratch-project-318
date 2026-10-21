@@ -233,3 +233,35 @@ yc compute instance create --name monitoring-vm-e --zone ru-central1-e --platfor
 ```
 
 Адрес в `ansible/inventory.ini` (группа `monitoring`) и приватный адрес в `monitoring_allowed_cidr` нужно обновить после создания ВМ.
+
+## Grafana
+
+- URL: http://93.77.167.172:3000
+- Администратор: `admin`, пароль хранится в Ansible Vault (`vault_grafana_admin_password`), в репозитории его нет.
+- Анонимный просмотр включён (роль Viewer, переменная `grafana_anonymous_enabled`); менять дашборды может только администратор.
+- Контейнер Grafana запускается в том же compose-проекте, что и Prometheus. Данные лежат в volume `grafana_data`, провижининг (источники данных и дашборды) в каталоге `/opt/monitoring/grafana` на сервере.
+- Источники данных описаны в `ansible/roles/monitoring/templates/grafana-datasources.yml.j2` (Prometheus и Loki). Пароль для Prometheus берётся из переменной окружения контейнера, которую Ansible собирает из Vault.
+- Дашборды лежат в `ansible/roles/monitoring/files/dashboards/` и генерируются скриптом `scripts/gen_dashboards.py`.
+
+### Дашборды
+
+| Дашборд | Что показывает |
+|---|---|
+| Системные ресурсы | CPU, load average, память, диск, сеть, процессы, статус systemd-сервисов |
+| Состояние приложения | таргет, аптайм, CPU и память JVM, потоки, паузы GC, пул соединений |
+| HTTP: коды ответов и latency | запросы по кодам, доли 4xx и 5xx, перцентили p50/p95/p99, latency по URI |
+
+Во всех дашбордах работают переменные `$job` и `$instance`.
+
+![Системные ресурсы](assets/dashboard-system.png)
+![Состояние приложения](assets/dashboard-app.png)
+![HTTP: коды и latency](assets/dashboard-http.png)
+
+### Обновление дашбордов
+
+```bash
+make gen-dashboards   # пересобрать JSON из scripts/gen_dashboards.py
+make dashboards       # выкатить их на сервер мониторинга
+```
+
+Дашборды провижинятся без права правки через интерфейс (`allowUiUpdates: false`), поэтому изменения вносятся в скрипт и выкатываются командами выше.

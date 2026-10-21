@@ -103,3 +103,12 @@
   retries: 10
   delay: 5
   until: monitoring_health.status in [200, 401]
+
+- name: Copy Grafana dashboards
+  ansible.builtin.copy:
+    src: dashboards/
+    dest: "{{ monitoring_dir }}/grafana/dashboards/"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: dashboards
