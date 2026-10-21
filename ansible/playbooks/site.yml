@@ -1,0 +1,8 @@
+- name: Create the S3 bucket
+  ansible.builtin.import_playbook: storage.yml
+
+- name: Prepare the app server and deploy the application
+  ansible.builtin.import_playbook: app.yml
+
+- name: Deploy the monitoring stack
+  ansible.builtin.import_playbook: monitoring.yml

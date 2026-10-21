@@ -1,0 +1,5 @@
+- name: Create S3 bucket
+  hosts: localnode
+  gather_facts: false
+  roles:
+    - storage

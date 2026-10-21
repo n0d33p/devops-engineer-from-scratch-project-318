@@ -1,5 +1,5 @@
 - name: Update application image
-  hosts: webservers
+  hosts: app
   become: true
   roles:
     - update

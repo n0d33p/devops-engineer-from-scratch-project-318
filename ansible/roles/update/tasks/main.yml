@@ -1,7 +1,7 @@
 ---
 - name: Re-render docker-compose-yml for the requested image tag
   ansible.builtin.template:
-    src: "{{ playbook_dir }}/roles/deploy/templates/docker-compose.yml.j2"
+    src: "{{ role_path }}/../deploy/templates/docker-compose.yml.j2"
     dest: "{{ app_deploy_dir }}/docker-compose.yml"
     owner: "{{ username }}"
     group: docker

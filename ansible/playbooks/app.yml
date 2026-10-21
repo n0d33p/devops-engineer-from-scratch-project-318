@@ -1,0 +1,10 @@
+- name: Prepare the app server and deploy the application
+  hosts: app
+  become: true
+  roles:
+    - common
+    - node_exporter
+    - deploy
+    - nginx
+    - nginx_exporter
+    - promtail

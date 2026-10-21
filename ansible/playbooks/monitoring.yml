@@ -1,0 +1,6 @@
+- name: Deploy the monitoring stack (Prometheus, Grafana, Loki)
+  hosts: monitoring
+  become: true
+  roles:
+    - common
+    - monitoring

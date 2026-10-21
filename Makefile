@@ -1,25 +1,37 @@
-IMAGE_TAG ?= latest
 ANSIBLE_DIR := ansible
 PROM_IMAGE := $(shell sed -nE 's/^prometheus_image:[[:space:]]*"?([^" ]+).*/\1/p' $(ANSIBLE_DIR)/group_vars/all/main.yml)
+IMAGE_TAG ?= latest
+VAULT_OPT ?= --ask-vault-pass
+ANSIBLE_PLAYBOOK = cd $(ANSIBLE_DIR) && ansible-playbook
 
 bootstrap:
-	cd $(ANSIBLE_DIR) && ansible-galaxy role install -r requirements.yml
-	cd $(ANSIBLE_DIR) && ansible-galaxy collection install -r requirements.yml
+	ansible-galaxy role install -r requirements.yml -p $(ANSIBLE_DIR)/roles
+	ansible-galaxy collection install -r requirements.yml
 
 deploy:
-	cd $(ANSIBLE_DIR) && ansible-playbook playbook.yml --ask-vault-pass -e image_tag=$(IMAGE_TAG)
+	$(ANSIBLE_PLAYBOOK) playbooks/site.yml $(VAULT_OPT) -e image_tag=$(IMAGE_TAG)
+
+deploy-storage:
+	$(ANSIBLE_PLAYBOOK) playbooks/storage.yml $(VAULT_OPT)
+
+deploy-app:
+	$(ANSIBLE_PLAYBOOK) playbooks/app.yml $(VAULT_OPT) -e image_tag=$(IMAGE_TAG)
+
+deploy-monitoring:
+	$(ANSIBLE_PLAYBOOK) playbooks/monitoring.yml $(VAULT_OPT)
 
 update:
-	cd $(ANSIBLE_DIR) && ansible-playbook update.yml --ask-vault-pass -e image_tag=$(IMAGE_TAG)
+	$(ANSIBLE_PLAYBOOK) playbooks/update.yml $(VAULT_OPT) -e image_tag=$(IMAGE_TAG)
 
 rollback:
 	@test "$(IMAGE_TAG)" != "latest" || (echo "Usage: make rollback IMAGE_TAG=<previous-stable-tag>"; exit 1)
-	cd $(ANSIBLE_DIR) && ansible-playbook update.yml --ask-vault-pass -e image_tag=$(IMAGE_TAG)
-
-.PHONY: bootstrap deploy update rollback promtool promtool-config gen-dashboards dashboards gen-alerts e2e-logs lint test test-generated smoke
+	$(ANSIBLE_PLAYBOOK) playbooks/update.yml $(VAULT_OPT) -e image_tag=$(IMAGE_TAG)
 
 promtool:
 	docker run --rm --entrypoint promtool -v "$(CURDIR)/ansible/roles/monitoring/files:/rules:ro" $(PROM_IMAGE) check rules /rules/alerts.yml
+
+promtool-config:
+	cd $(ANSIBLE_DIR) && ansible monitoring $(VAULT_OPT) --become -m command -a "docker exec prometheus promtool check config /etc/prometheus/prometheus.yml"
 
 gen-dashboards:
 	python3 scripts/gen_dashboards.py
@@ -27,24 +39,18 @@ gen-dashboards:
 	python3 scripts/gen_nginx_dashboard.py
 	python3 scripts/gen_logs_dashboard.py
 
-dashboards:
-	cd $(ANSIBLE_DIR) && ansible-playbook playbook.yml --ask-vault-pass --limit monitoring --tags dashboards
-
 gen-alerts:
 	python3 scripts/gen_alerts.py
 	python3 scripts/gen_log_alerts.py
 
-promtool-config:
-	cd $(ANSIBLE_DIR) && ansible monitoring --ask-vault-pass --become -m command -a "docker exec prometheus promtool check config /etc/prometheus/prometheus.yml"
-
+dashboards:
+	$(ANSIBLE_PLAYBOOK) playbooks/monitoring.yml $(VAULT_OPT) --tags dashboards
 
 e2e-logs:
 	./scripts/e2e_logs.sh
 
-VAULT_OPT ?= --ask-vault-pass
-
 lint:
-	ansible-lint
+	ANSIBLE_ROLES_PATH=$(CURDIR)/ansible/roles ansible-lint
 	python3 -m py_compile scripts/*.py
 	bash -n scripts/*.sh
 
@@ -55,8 +61,10 @@ test-generated:
 	if [ "$$before" = "$$after" ]; then echo "OK: сгенерированные файлы актуальны"; else echo "FAIL: сгенерированные файлы были устаревшими, закоммитьте изменения"; exit 1; fi
 
 test: lint test-generated promtool
-	cd $(ANSIBLE_DIR) && ansible-playbook playbook.yml $(VAULT_OPT) --syntax-check
+	$(ANSIBLE_PLAYBOOK) playbooks/site.yml $(VAULT_OPT) --syntax-check
 	cd $(ANSIBLE_DIR) && ansible all $(VAULT_OPT) -m ping
 
 smoke:
 	./scripts/smoke.sh
+
+.PHONY: bootstrap deploy deploy-storage deploy-app deploy-monitoring update rollback promtool promtool-config gen-dashboards gen-alerts dashboards e2e-logs lint test-generated test smoke

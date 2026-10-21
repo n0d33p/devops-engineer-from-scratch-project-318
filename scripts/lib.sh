@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Общие функции для скриптов. Адреса берутся из inventory и переменных Ansible, без хардкода.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INV="$ROOT/ansible/inventory.ini"
+INV="$ROOT/ansible/inventories/hosts.ini"
 VARS="$ROOT/ansible/group_vars/all/main.yml"
 
 # inv_host <группа>: ansible_host первого хоста группы из inventory.ini
@@ -15,7 +15,7 @@ var() {
 }
 
 load_env() {
-  APP="$(inv_host webservers)"
+  APP="$(inv_host app)"
   MON="$(inv_host monitoring)"
   MON_PRIV="$(var monitoring_private_ip)"
   SSH_USER="$(var username)"

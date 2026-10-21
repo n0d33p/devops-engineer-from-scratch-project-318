@@ -6,3 +6,6 @@ vault_password
 *.retry
 ansible/roles/geerlingguy.*
 .ansible/__pycache__/
+.ansible/
+__pycache__/
+*.pyc

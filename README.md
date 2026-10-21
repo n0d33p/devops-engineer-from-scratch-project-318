@@ -35,6 +35,8 @@
 | Grafana | http://93.77.167.172:3000 (анонимный просмотр, администратор `admin`) |
 | Дашборды (папка Observability) | Status Page, Системные ресурсы, Состояние приложения, HTTP: коды ответов и latency, Nginx, Логи (Loki) |
 | Prometheus | http://93.77.167.172:9090/graph (basic-auth, пользователь `reviewer`) |
+| Loki (внутренний API) | http://10.131.0.18:3100 (только с App VM; из Grafana: Explore, источник Loki) |
+| Правила и алерты | http://93.77.167.172:3000/alerting/list (Grafana, Alerting) |
 
 ### Порты
 
@@ -73,6 +75,23 @@ Telegram и ntfy в проекте не используются.
 | `vault_grafana_admin_password` | пароль `admin` в Grafana |
 | `vault_smtp_user`, `vault_smtp_password`, `vault_alert_recipient` | почта для алертов |
 
+## Структура репозитория
+
+```
+.
+├── ansible
+│   ├── ansible.cfg            # inventory, пути к ролям
+│   ├── group_vars/            # all (общие переменные), servers и localnode (секреты в Vault)
+│   ├── inventories/           # hosts.ini: группы app, monitoring, localnode
+│   ├── playbooks/             # site, storage, app, monitoring, update
+│   └── roles/                 # common, deploy, nginx, nginx_exporter, node_exporter, promtail, monitoring, storage, update
+├── assets/                    # скриншоты дашбордов и алертов
+├── scripts/                   # генераторы дашбордов и правил, smoke и e2e проверки
+├── Makefile
+├── README.md
+└── requirements.yml           # роли и коллекции Ansible
+```
+
 ## Развёртывание с нуля
 
 Порядок для чистой машины и нового облачного каталога. Адреса из справочника выше нужно заменить на свои.
@@ -87,7 +106,7 @@ Telegram и ntfy в проекте не используются.
 3. **Yandex Cloud.** `yc init`, затем сервисный аккаунт с ролью `storage.editor` и статический ключ доступа (консоль или `yc iam ...`). Ключ пойдёт в Vault.
 4. **SSH-ключ.** `ssh-keygen -t ed25519`; публичную часть подставить в `cloud-init.yaml` (пример в разделе «Инфраструктура»).
 5. **Инфраструктура.** Выполнить команды из разделов «Создание ресурсов» и «Создание Monitoring VM»: App VM, кластер PostgreSQL, Security Group, Monitoring VM, правило для Loki (`yc vpc security-group update-rules ... port=3100 ... <приватный IP App VM>/32`), закрепление внешних адресов как статических.
-6. **Адреса и параметры.** Обновить `ansible/inventory.ini` (группы `webservers` и `monitoring`) и в `ansible/group_vars/all/main.yml`: `app_private_ip`, `monitoring_private_ip`, `monitoring_allowed_cidr`, `db_host`, `s3_bucket_name` (имя уникально в рамках Yandex Cloud). Один раз зайти по SSH на каждую ВМ и принять отпечаток.
+6. **Адреса и параметры.** Обновить `ansible/inventories/hosts.ini` (группы `app` и `monitoring`) и в `ansible/group_vars/all/main.yml`: `app_private_ip`, `monitoring_private_ip`, `monitoring_allowed_cidr`, `db_host`, `s3_bucket_name` (имя уникально в рамках Yandex Cloud). Один раз зайти по SSH на каждую ВМ и принять отпечаток.
 7. **Секреты.** Создать зашифрованные файлы и заполнить переменные из таблицы «Секреты»:
    ```bash
    ansible-vault create ansible/group_vars/servers/vault.yml
@@ -111,7 +130,7 @@ Telegram и ntfy в проекте не используются.
 | `make e2e-logs` | тестовая строка проходит Nginx, Promtail, Loki |
 | `make promtool`, `make promtool-config` | правила и конфигурация Prometheus |
 
-Для проверки таргетов Prometheus в `make smoke` нужен пароль: `read -rs PROM_PASSWORD; export PROM_PASSWORD`. Без него эта часть пропускается (`SKIP`). Адреса скрипты берут из `inventory.ini` и `group_vars/all/main.yml`, в них ничего не зашито.
+Для проверки таргетов Prometheus в `make smoke` нужен пароль: `read -rs PROM_PASSWORD; export PROM_PASSWORD`. Без него эта часть пропускается (`SKIP`). Адреса скрипты берут из `inventories/hosts.ini` и `group_vars/all/main.yml`, в них ничего не зашито.
 
 ### Ручной чек-лист
 
@@ -186,31 +205,41 @@ yc compute instance create --name monitoring-vm-e --zone ru-central1-e --platfor
 yc vpc address update --id <ID адреса> --reserved=true
 ```
 
-После создания ВМ нужно обновить адреса в `ansible/inventory.ini` (группы `webservers` и `monitoring`), а приватные адреса `app_private_ip` и `monitoring_allowed_cidr` в `ansible/group_vars/all/main.yml`.
+После создания ВМ нужно обновить адреса в `ansible/inventories/hosts.ini` (группы `app` и `monitoring`), а приватные адреса `app_private_ip` и `monitoring_allowed_cidr` в `ansible/group_vars/all/main.yml`.
 
 ## Ansible
 
 Всё лежит в каталоге `ansible/`:
 
-- `playbook.yml` — подготовка сервера и деплой, `update.yml` — обновление версии образа;
+- `playbooks/`: `site.yml` (всё сразу), `storage.yml` (бакет), `app.yml` (App VM), `monitoring.yml` (Monitoring VM), `update.yml` (обновление версии образа);
 - `roles/common` (Docker, пользователь, UFW), `roles/deploy` (compose, `.env`, проверка health), `roles/nginx` (reverse proxy, JSON-логи, `stub_status`), `roles/storage` (бакет), `roles/update`;
 - `roles/node_exporter` и `roles/nginx_exporter` (экспортёры метрик под systemd), `roles/monitoring` (Prometheus, Grafana, алертинг);
-- `inventory.ini` — группы `webservers` (App VM), `monitoring` (Monitoring VM) и `localnode` (создание бакета с локальной машины);
+- `inventories/hosts.ini` — группы `app` (App VM), `monitoring` (Monitoring VM) и `localnode` (создание бакета с локальной машины);
 - `group_vars/all/main.yml` — несекретные переменные, `group_vars/*/vault.yml` — секреты в Ansible Vault.
 
 Приложение запускается с профилем `prod` и подключается к PostgreSQL по TLS (`sslmode=require`). Actuator в контейнере слушает только 127.0.0.1:9090, наружу метрики отдаёт Nginx (см. раздел «Метрики»)
 
 ## Команды
 
-```bash
-make bootstrap                    # роли и коллекции Ansible
-make deploy                       # подготовка сервера + деплой (спросит пароль Vault)
-make update IMAGE_TAG=<тег>       # обновить версию
-make rollback IMAGE_TAG=<тег>     # откат на предыдущий тег
-make promtool                     # проверка правил алертинга (promtool в Docker)
-```
+Все команды запускаются из корня репозитория; Ansible спросит пароль Vault.
 
-Требования: Ansible 2.15+, `python3-boto3` (для создания бакета), доступ по SSH к `app-vm-d` и `monitoring-vm-e`, пароль от Vault.
+| Команда | Когда запускать |
+|---|---|
+| `make bootstrap` | один раз на новой машине: ставит роли и коллекции из `requirements.yml` |
+| `make deploy` | развернуть или обновить всё: бакет, App VM, Monitoring VM (идемпотентно) |
+| `make deploy-storage` / `make deploy-app` / `make deploy-monitoring` | то же по частям: только бакет, только App VM, только Monitoring VM |
+| `make update IMAGE_TAG=<тег>` / `make rollback IMAGE_TAG=<тег>` | обновить приложение до версии или откатить |
+| `make lint` | перед коммитом: `ansible-lint`, синтаксис скриптов |
+| `make test` | перед сдачей: lint, актуальность сгенерированных файлов, `promtool`, синтаксис плейбуков, `ansible ping` всех хостов |
+| `make smoke` | после деплоя: проверка живой инфраструктуры |
+| `make e2e-logs` | после деплоя: проверка пути логов до Loki |
+| `make promtool`, `make promtool-config` | проверка правил и конфигурации Prometheus |
+| `make gen-dashboards`, `make gen-alerts` | после правки скриптов в `scripts/`: пересобрать JSON дашбордов и правил |
+| `make dashboards` | выкатить дашборды и правила алертинга без полного деплоя |
+
+Чтобы не вводить пароль Vault при каждом запуске, положите его в файл вне репозитория и задайте `export VAULT_OPT="--vault-password-file ~/.vault_pass"` (его используют цели `make`); для прямых вызовов `ansible` задайте `export ANSIBLE_VAULT_PASSWORD_FILE=~/.vault_pass`. Файл с паролем не должен попадать в git.
+
+Требования к машине управления: Ansible 2.15+, `python3-boto3`, `docker`, `yc`, `make`, `nc`, `openssl`. Доступ по SSH к `app-vm-d` и `monitoring-vm-e` и пароль от Vault.
 
 ## Быстрая проверка приложения
 
