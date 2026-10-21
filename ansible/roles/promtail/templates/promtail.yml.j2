@@ -1,0 +1,74 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /positions/positions.yaml
+
+clients:
+  - url: http://{{ monitoring_private_ip }}:{{ loki_port }}/loki/api/v1/push
+
+scrape_configs:
+  - job_name: containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/promtail"
+        action: drop
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: service
+      - target_label: job
+        replacement: containerlogs
+      - target_label: env
+        replacement: "{{ promtail_env }}"
+      - target_label: app
+        replacement: "{{ app_name }}"
+      - target_label: host
+        replacement: "{{ inventory_hostname }}"
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            logger: logger_name
+      - labels:
+          level:
+
+  - job_name: nginx-access
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: nginx
+          log_type: access
+          env: "{{ promtail_env }}"
+          app: "{{ app_name }}"
+          host: "{{ inventory_hostname }}"
+          __path__: /var/log/nginx/access.log
+    pipeline_stages:
+      - json:
+          expressions:
+            status: status
+            method: request_method
+            ts: time
+      - labels:
+          status:
+          method:
+      - timestamp:
+          source: ts
+          format: RFC3339
+
+  - job_name: nginx-error
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: nginx
+          log_type: error
+          env: "{{ promtail_env }}"
+          app: "{{ app_name }}"
+          host: "{{ inventory_hostname }}"
+          __path__: /var/log/nginx/error.log

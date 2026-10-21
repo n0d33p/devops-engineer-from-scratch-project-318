@@ -13,6 +13,7 @@
     - deploy
     - nginx
     - nginx_exporter
+    - promtail
 
 - name: Deploy the monitoring stack (Prometheus, Grafana)
   hosts: monitoring

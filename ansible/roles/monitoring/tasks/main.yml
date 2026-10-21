@@ -90,6 +90,32 @@
     mode: "0644"
   notify: Restart monitoring stack
 
+- name: Create Loki directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ monitoring_dir }}/loki"
+    - "{{ monitoring_dir }}/loki/config"
+
+- name: Create Loki data directory owned by the Loki user
+  ansible.builtin.file:
+    path: "{{ monitoring_dir }}/loki/data"
+    state: directory
+    owner: "10001"
+    group: "10001"
+    mode: "0755"
+
+- name: Write Loki config
+  ansible.builtin.template:
+    src: loki.yml.j2
+    dest: "{{ monitoring_dir }}/loki/config/loki.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart monitoring stack
+
 - name: Start the monitoring stack
   community.docker.docker_compose_v2:
     project_src: "{{ monitoring_dir }}"
@@ -129,3 +155,12 @@
     mode: "0644"
   notify: Restart grafana
   tags: dashboards
+
+- name: Wait for Loki to be ready
+  ansible.builtin.uri:
+    url: "http://{{ ansible_default_ipv4.address }}:{{ loki_port }}/ready"
+    status_code: 200
+  register: monitoring_loki_ready
+  retries: 12
+  delay: 5
+  until: monitoring_loki_ready.status == 200

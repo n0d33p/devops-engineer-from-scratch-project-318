@@ -199,13 +199,13 @@ Access-лог `/var/log/nginx/access.log` пишется в JSON (поля: `tim
 Prometheus развёрнут Ansible-ролью `ansible/roles/monitoring` на отдельной ВМ `monitoring-vm-e` (группа `monitoring`, зона `ru-central1-e`, внешний IP `93.77.167.172`, приватный `10.131.0.18`). Из-за аварии зоны `ru-central1-b` в Yandex Cloud инфраструктура проекта развёрнута в зонах `d` и `e`.
 
 - UI: http://93.77.167.172:9090/graph (список таргетов: http://93.77.167.172:9090/targets)
-- Доступ: basic-auth, пользователь `reviewer`, пароль выдаётся проверяющему отдельно.
+- Доступ: basic-auth, пользователь `reviewer`, пароль передан наставнику в чате Хекслета.
 
 ### Как устроено
 
 - Контейнер Prometheus запускается через docker compose из `/opt/monitoring`, образ `prom/prometheus:v3.13.2`.
 - Конфиг и правила лежат в каталоге `/opt/monitoring/prometheus/config` (bind mount, только чтение), данные TSDB в отдельном volume `prometheus_data`.
-- Отдельная Docker-сеть `monitoring`, к ней подключена Grafana, позже добавится Loki.
+- Отдельная Docker-сеть `monitoring`, к ней подключены Grafana и Loki.
 - `prometheus.yml` генерируется из шаблона по списку `prometheus_scrape_jobs` в `ansible/group_vars/all/main.yml`. Чтобы добавить таргет, достаточно добавить элемент в этот список и выполнить `make deploy`.
 - Правила алертинга: `ansible/roles/monitoring/files/alerts.yml` (`InstanceDown`, `NginxServiceDown`, `HighLoad`, `LowMemory`, `LowDiskSpace`). Проверка: `make promtool` (правила) и `make promtool-config` (конфигурация).
 - Секреты в Ansible Vault: `vault_prometheus_web_password_hash` (хэш пароля UI), `vault_metrics_password` (пароль для сбора метрик приложения).
@@ -219,7 +219,7 @@ Prometheus развёрнут Ansible-ролью `ansible/roles/monitoring` на
 
 ### Безопасность
 
-- Security Group `monitoring-sg` разрешает входящий трафик только на порты 22 (SSH), 9090 (Prometheus) и 3000 (Grafana).
+- Security Group `monitoring-sg` разрешает входящий трафик только на порты 22 (SSH), 9090 (Prometheus), 3000 (Grafana) и 3100 (Loki, только с приватного адреса App VM).
 - Порт 9090 защищён basic-auth. Docker публикует порты в обход UFW, поэтому защита основана на Security Group и авторизации.
 - На App VM порты 9100 (Node Exporter), 9113 (Nginx exporter) и 9090 (метрики приложения) открыты только для приватного адреса Monitoring VM (UFW; для 9090 дополнительно `allow/deny` в Nginx).
 
@@ -344,3 +344,65 @@ curl -s -u reviewer --data-urlencode 'query=nginx_up' http://93.77.167.172:9090/
 ```
 
 ![Nginx](assets/dashboard-nginx.png)
+
+## Логи (Loki + Promtail)
+
+Схема: приложение (stdout, JSON) и Nginx (access-лог в JSON) пишут логи, Promtail на App VM отправляет их в Loki на сервере мониторинга, Grafana показывает их и алертит по ним.
+
+- **Loki** разворачивается ролью `ansible/roles/monitoring` (шаблон `loki.yml.j2`) в Docker на Monitoring VM. Данные лежат в `/opt/monitoring/loki/data` (владелец `10001`), хранение 7 дней (`loki_retention`). Порт 3100 слушает только приватный адрес Monitoring VM, в Security Group `monitoring-sg` открыт только для приватного адреса App VM (`10.130.0.22/32`).
+- **Promtail** разворачивается ролью `ansible/roles/promtail` в Docker на App VM (`/opt/promtail`, `restart: unless-stopped`, позиции чтения в `/opt/promtail/positions`). Он читает логи контейнеров через Docker API (`docker_sd_configs`) и файлы `/var/log/nginx/access.log` и `error.log`. Конфиг шаблонизирован (`promtail.yml.j2`), чувствительных данных в нём нет. Монтирование `docker.sock` даёт Promtail доступ к Docker API, это осознанный компромисс учебного проекта.
+- Версии: `loki_version`, `promtail_version` в `ansible/group_vars/all/main.yml`.
+
+### Метки
+
+| Метка | Значение |
+|---|---|
+| `job` | `containerlogs` (контейнеры) или `nginx` |
+| `env` | `prod` |
+| `app` | `bulletin-board` |
+| `host` | имя сервера из inventory (`app-vm`) |
+| `log_type` | `access` или `error` (Nginx) |
+| `level` | уровень записи приложения (`INFO`, `WARN`, `ERROR`), берётся из JSON |
+| `status`, `method` | код ответа и метод из JSON access-лога Nginx |
+
+### Дашборд и запросы
+
+Grafana, Loki datasource (описан в `grafana-datasources.yml.j2`), дашборд «Логи (Loki)»: http://93.77.167.172:3000/d/logs (папка Observability), JSON в `ansible/roles/monitoring/files/dashboards/logs.json`, генерируется `scripts/gen_logs_dashboard.py`.
+
+| Задача | LogQL |
+|---|---|
+| Ответы 5xx | `{job="nginx", log_type="access", status=~"5.."}` |
+| Количество 5xx по минутам | `sum(count_over_time({job="nginx", log_type="access", status=~"5.."}[1m]))` |
+| Latency (p95) по access-логу | `quantile_over_time(0.95, {job="nginx", log_type="access"} != "/actuator/" \| json \| unwrap request_time [5m]) by (host)` |
+| Ошибки приложения | `{job="containerlogs", app="bulletin-board", level="ERROR"}` |
+| Поиск по пользователю, IP или тексту | `{job=~"containerlogs\|nginx"} \|~ "<текст>"` (на дашборде переменная `search`) |
+
+### Алерты по логам
+
+`ansible/roles/monitoring/files/grafana-alerting/alert-rules-logs.yml` (генерируется `scripts/gen_log_alerts.py`): «Всплеск 5xx в логах Nginx» (больше 5 за 5 минут) и «Ошибки ERROR в логах приложения» (больше 3 за 5 минут). Письма уходят тем же contact point, что и остальные алерты.
+
+### Сквозная проверка (end-to-end)
+
+```bash
+make e2e-logs
+```
+
+Скрипт отправляет запрос с уникальной меткой `e2e-<время>`, ждёт до минуты и ищет её в Loki на сервере мониторинга; затем строку можно найти в Grafana (Explore, Loki): `{job="nginx"} |= "e2e-<время>"`.
+
+Вручную: `ssh wh0am1@178.154.234.125 'docker logs promtail --since 5m'` (нет ошибок отправки) и `ssh wh0am1@93.77.167.172 'curl -s http://10.131.0.18:3100/loki/api/v1/labels'` (метки на месте).
+
+### Как вызвать алерт по логам
+
+1. `ssh wh0am1@178.154.234.125 'docker stop bulletin-board-app-1'`, затем 20 запросов: `seq 20 | xargs -I{} curl -s -o /dev/null http://178.154.234.125/api/bulletins` (Nginx ответит 502).
+2. Через 2–4 минуты правило «Всплеск 5xx в логах Nginx» перейдёт в Firing, придёт письмо.
+3. Вернуть: `ssh wh0am1@178.154.234.125 'docker start bulletin-board-app-1'`.
+
+![Дашборд логов](assets/dashboard-logs.png)
+![Сквозная проверка](assets/e2e-logs.png)
+![Алерт по логам](assets/alert-logs.png)
+![Алерт: приложение недоступно](assets/alert-app-down.png)
+![Алерт закрыт (Resolved)](assets/alert-resolved.png)
+
+### Важно: Promtail снят с поддержки
+
+Promtail достиг EOL 2 марта 2026 года: новых версий и исправлений не будет, Grafana рекомендует Grafana Alloy (у Alloy есть команда `alloy convert --source-format=promtail`, которая переводит конфиг Promtail). В проекте используется Promtail, потому что его требует задание; для продакшена нужно переходить на Alloy.

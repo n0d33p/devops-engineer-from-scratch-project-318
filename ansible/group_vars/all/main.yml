@@ -57,3 +57,10 @@ smtp_from_name: "Grafana Alerts"
 nginx_exporter_version: "1.5.3"
 nginx_exporter_port: 9113
 nginx_stub_status_port: 8081
+
+monitoring_private_ip: "10.131.0.18"
+loki_version: "3.6.0"
+loki_port: 3100
+loki_retention: 168h
+promtail_version: "3.6.0"
+promtail_env: prod

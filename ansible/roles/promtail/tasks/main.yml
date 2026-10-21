@@ -1,0 +1,41 @@
+- name: Create Promtail directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ promtail_dir }}"
+    - "{{ promtail_dir }}/config"
+    - "{{ promtail_dir }}/positions"
+
+- name: Write Promtail config
+  ansible.builtin.template:
+    src: promtail.yml.j2
+    dest: "{{ promtail_dir }}/config/promtail.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart promtail
+
+- name: Write Promtail docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ promtail_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart promtail
+
+- name: Start Promtail
+  community.docker.docker_compose_v2:
+    project_src: "{{ promtail_dir }}"
+    state: present
+
+- name: Wait for Promtail to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:9080/ready"
+    status_code: 200
+  register: promtail_ready
+  retries: 12
+  delay: 5
+  until: promtail_ready.status == 200

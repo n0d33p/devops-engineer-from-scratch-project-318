@@ -1,0 +1,175 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "logs",
+      "folder": "Observability",
+      "interval": "1m",
+      "rules": [
+        {
+          "uid": "logs-5xx-spike",
+          "title": "Всплеск 5xx в логах Nginx",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "loki",
+              "model": {
+                "datasource": {
+                  "type": "loki",
+                  "uid": "loki"
+                },
+                "expr": "sum(count_over_time({job=\"nginx\", log_type=\"access\", status=~\"5..\"}[5m]))",
+                "queryType": "instant",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "type": "reduce",
+                "expression": "A",
+                "reducer": "last",
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "refId": "B"
+              }
+            },
+            {
+              "refId": "C",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "type": "threshold",
+                "expression": "B",
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "refId": "C",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        5
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "for": "1m",
+          "annotations": {
+            "summary": "Больше 5 ответов 5xx за 5 минут (по логам Nginx)",
+            "description": "В access-логе Nginx за последние 5 минут больше 5 ответов с кодом 5xx. Смотрите дашборд «Логи (Loki)»."
+          },
+          "labels": {
+            "severity": "critical",
+            "service": "app"
+          },
+          "isPaused": false
+        },
+        {
+          "uid": "logs-app-errors",
+          "title": "Ошибки ERROR в логах приложения",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "loki",
+              "model": {
+                "datasource": {
+                  "type": "loki",
+                  "uid": "loki"
+                },
+                "expr": "sum(count_over_time({job=\"containerlogs\", app=\"bulletin-board\", level=\"ERROR\"}[5m]))",
+                "queryType": "instant",
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "type": "reduce",
+                "expression": "A",
+                "reducer": "last",
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "refId": "B"
+              }
+            },
+            {
+              "refId": "C",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "__expr__",
+              "model": {
+                "type": "threshold",
+                "expression": "B",
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "refId": "C",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        3
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "for": "2m",
+          "annotations": {
+            "summary": "Больше 3 записей ERROR за 5 минут в логах приложения",
+            "description": "В JSON-логах приложения за последние 5 минут больше 3 записей уровня ERROR."
+          },
+          "labels": {
+            "severity": "warning",
+            "service": "app"
+          },
+          "isPaused": false
+        }
+      ]
+    }
+  ]
+}
