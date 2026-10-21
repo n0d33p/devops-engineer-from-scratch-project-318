@@ -13,9 +13,9 @@
     - deploy
     - nginx
 
-- name: Deploy Prometheus on the monitoring server
+- name: Deploy the monitoring stack (Prometheus, Grafana)
   hosts: monitoring
   become: true
   roles:
     - common
-    - prometheus
+    - monitoring

@@ -166,7 +166,7 @@ Access-лог `/var/log/nginx/access.log` пишется в JSON (поля: `tim
 
 ## Prometheus
 
-Prometheus развёрнут Ansible-ролью `ansible/roles/prometheus` на отдельной ВМ `monitoring-vm-e` (группа `monitoring`, зона `ru-central1-e`, внешний IP `93.77.167.172`, приватный `10.131.0.18`). Из-за аварии зоны `ru-central1-b` в Yandex Cloud инфраструктура проекта развёрнута в зонах `d` и `e`.
+Prometheus развёрнут Ansible-ролью `ansible/roles/monitoring` на отдельной ВМ `monitoring-vm-e` (группа `monitoring`, зона `ru-central1-e`, внешний IP `93.77.167.172`, приватный `10.131.0.18`). Из-за аварии зоны `ru-central1-b` в Yandex Cloud инфраструктура проекта развёрнута в зонах `d` и `e`.
 
 - UI: http://93.77.167.172:9090/graph (список таргетов: http://93.77.167.172:9090/targets)
 - Доступ: basic-auth, пользователь `reviewer`, пароль выдаётся проверяющему отдельно.
@@ -177,7 +177,7 @@ Prometheus развёрнут Ansible-ролью `ansible/roles/prometheus` на
 - Конфиг и правила лежат в каталоге `/opt/monitoring/prometheus/config` (bind mount, только чтение), данные TSDB в отдельном volume `prometheus_data`.
 - Отдельная Docker-сеть `monitoring`, к ней позже подключатся Grafana и Loki.
 - `prometheus.yml` генерируется из шаблона по списку `prometheus_scrape_jobs` в `ansible/group_vars/all/main.yml`. Чтобы добавить таргет, достаточно добавить элемент в этот список и выполнить `make deploy`.
-- Правила алертинга: `ansible/roles/prometheus/files/alerts.yml` (`InstanceDown`, `NginxServiceDown`, `HighLoad`, `LowMemory`, `LowDiskSpace`). Проверка: `make promtool`.
+- Правила алертинга: `ansible/roles/monitoring/files/alerts.yml` (`InstanceDown`, `NginxServiceDown`, `HighLoad`, `LowMemory`, `LowDiskSpace`). Проверка: `make promtool`.
 - Секреты в Ansible Vault: `vault_prometheus_web_password_hash` (хэш пароля UI), `vault_metrics_password` (пароль для сбора метрик приложения).
 
 ### Таргеты

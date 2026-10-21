@@ -18,4 +18,4 @@ rollback:
 .PHONY: bootstrap deploy update rollback promtool
 
 promtool:
-	docker run --rm --entrypoint promtool -v "$(CURDIR)/ansible/roles/prometheus/files:/rules:ro" prom/prometheus:v3.13.2 check rules /rules/alerts.yml
+	docker run --rm --entrypoint promtool -v "$(CURDIR)/ansible/roles/monitoring/files:/rules:ro" prom/prometheus:v3.13.2 check rules /rules/alerts.yml

@@ -9,6 +9,11 @@
     - "{{ monitoring_dir }}/prometheus/config"
     - "{{ monitoring_dir }}/prometheus/config/rules"
     - "{{ monitoring_dir }}/prometheus/config/secrets"
+    - "{{ monitoring_dir }}/grafana"
+    - "{{ monitoring_dir }}/grafana/provisioning"
+    - "{{ monitoring_dir }}/grafana/provisioning/datasources"
+    - "{{ monitoring_dir }}/grafana/provisioning/dashboards"
+    - "{{ monitoring_dir }}/grafana/dashboards"
 
 - name: Write prometheus.yml
   ansible.builtin.template:
@@ -17,7 +22,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Restart prometheus
+  notify: Restart monitoring stack
 
 - name: Copy alert rules
   ansible.builtin.copy:
@@ -26,7 +31,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Restart prometheus
+  notify: Restart monitoring stack
 
 - name: Write web config with the basic-auth hash
   ansible.builtin.template:
@@ -36,7 +41,7 @@
     group: "65534"
     mode: "0400"
   no_log: true
-  notify: Restart prometheus
+  notify: Restart monitoring stack
 
 - name: Write the password used to scrape the application metrics
   ansible.builtin.copy:
@@ -46,7 +51,35 @@
     group: "65534"
     mode: "0400"
   no_log: true
-  notify: Restart prometheus
+  notify: Restart monitoring stack
+
+- name: Write Grafana datasources provisioning
+  ansible.builtin.template:
+    src: grafana-datasources.yml.j2
+    dest: "{{ monitoring_dir }}/grafana/provisioning/datasources/datasources.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart monitoring stack
+
+- name: Write Grafana dashboards provider
+  ansible.builtin.copy:
+    src: grafana-dashboards-provider.yml
+    dest: "{{ monitoring_dir }}/grafana/provisioning/dashboards/provider.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart monitoring stack
+
+- name: Write the compose env file with Grafana secrets
+  ansible.builtin.template:
+    src: monitoring.env.j2
+    dest: "{{ monitoring_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart monitoring stack
 
 - name: Write docker-compose.yml
   ansible.builtin.template:
@@ -55,7 +88,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Restart prometheus
+  notify: Restart monitoring stack
 
 - name: Start the monitoring stack
   community.docker.docker_compose_v2:
@@ -66,8 +99,7 @@
   ansible.builtin.uri:
     url: "http://localhost:{{ prometheus_port }}/-/healthy"
     status_code: [200, 401]
-  register: prometheus_health
+  register: monitoring_health
   retries: 10
   delay: 5
-  until: prometheus_health.status in [200, 401]
-  
+  until: monitoring_health.status in [200, 401]
