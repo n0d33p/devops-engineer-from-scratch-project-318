@@ -1,4 +1,5 @@
 exclude_paths:
+  - ansible/roles/monitoring/files/
   - .github/
   - ansible/roles/geerlingguy.docker/
   - ansible/roles/geerlingguy.nginx/

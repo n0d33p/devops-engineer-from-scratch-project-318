@@ -13,6 +13,114 @@
 - Prometheus: http://93.77.167.172:9090/graph (basic-auth, см. раздел «Prometheus»)
 - Grafana: http://93.77.167.172:3000 (дашборды в папке Observability: Status Page, Nginx, HTTP, состояние приложения, системные ресурсы)
 
+## Справочник: адреса, порты, каналы оповещений
+
+### Серверы
+
+| Роль | Имя | Зона | Публичный IP | Приватный IP |
+|---|---|---|---|---|
+| App VM | `app-vm-d` (в inventory `app-vm`) | `ru-central1-d` | 178.154.234.125 | 10.130.0.22 |
+| Monitoring VM | `monitoring-vm-e` (в inventory `monitoring-vm`) | `ru-central1-e` | 93.77.167.172 | 10.131.0.18 |
+| Managed PostgreSQL | `bulletins-db-d` | `ru-central1-d` | нет | `db_host` в `main.yml`, порт 6432 |
+| Object Storage | бакет `bulletins-obs-p4-zayats` | — | — | — |
+
+Домен в проекте не используется: всё доступно по IP, TLS не настроен (порт 443 открыт в UFW про запас).
+
+### URL
+
+| Что | Адрес |
+|---|---|
+| Приложение и REST API | http://178.154.234.125/ и http://178.154.234.125/api/bulletins |
+| Swagger UI | http://178.154.234.125/swagger-ui/index.html |
+| Grafana | http://93.77.167.172:3000 (анонимный просмотр, администратор `admin`) |
+| Дашборды (папка Observability) | Status Page, Системные ресурсы, Состояние приложения, HTTP: коды ответов и latency, Nginx, Логи (Loki) |
+| Prometheus | http://93.77.167.172:9090/graph (basic-auth, пользователь `reviewer`) |
+
+### Порты
+
+| Сервер | Порт | Назначение | Кто имеет доступ |
+|---|---|---|---|
+| App VM | 22 | SSH | любые адреса (UFW OpenSSH) |
+| App VM | 80 | Nginx: сайт и API | публично |
+| App VM | 9100 | Node Exporter | только Monitoring VM (UFW) |
+| App VM | 9113 | nginx-prometheus-exporter | только Monitoring VM (UFW) |
+| App VM | 9090 (на приватном IP) | метрики приложения через Nginx | только Monitoring VM (UFW, `allow/deny` в Nginx, basic-auth) |
+| App VM | 8080, 9090 (в контейнере), 8081, 9080 | приложение, Actuator, `stub_status`, Promtail | только `127.0.0.1` |
+| Monitoring VM | 22 | SSH | любые адреса (Security Group) |
+| Monitoring VM | 9090 | Prometheus | Security Group `monitoring-sg` и basic-auth |
+| Monitoring VM | 3000 | Grafana | Security Group `monitoring-sg`; вход под `admin` или анонимный просмотр |
+| Monitoring VM | 3100 | Loki | Security Group: только `10.130.0.22/32` (App VM) |
+
+### Каналы оповещений
+
+| Канал | Настройка |
+|---|---|
+| Почта (SMTP Яндекс Почты `smtp.yandex.ru:465`) | contact point `email-oncall`, адреса и пароль приложения в Vault (`vault_smtp_user`, `vault_smtp_password`, `vault_alert_recipient`) |
+
+Telegram и ntfy в проекте не используются.
+
+### Секреты (Ansible Vault)
+
+Файлы: `ansible/group_vars/servers/vault.yml` (для обеих ВМ) и `ansible/group_vars/localnode/vault.yml` (ключи S3 для создания бакета с локальной машины). В репозитории только зашифрованные файлы.
+
+| Переменная | Назначение |
+|---|---|
+| `user_password`, `vault_password_salt` | пароль и соль пользователя ОС на серверах |
+| `vault_s3_access_key`, `vault_s3_secret_key` | статический ключ сервисного аккаунта Object Storage |
+| `vault_db_password` | пароль пользователя PostgreSQL |
+| `vault_metrics_password` | basic-auth для метрик приложения (Nginx и Prometheus) |
+| `vault_prometheus_web_password_hash`, `vault_prometheus_web_password` | вход в Prometheus (хэш) и пароль для Grafana datasource |
+| `vault_grafana_admin_password` | пароль `admin` в Grafana |
+| `vault_smtp_user`, `vault_smtp_password`, `vault_alert_recipient` | почта для алертов |
+
+## Развёртывание с нуля
+
+Порядок для чистой машины и нового облачного каталога. Адреса из справочника выше нужно заменить на свои.
+
+1. **Рабочая машина.** Linux с `git`, `make`, `ansible` (2.15+), `python3-boto3`, `docker` (для `promtool` и хэша пароля), `yc` (Yandex Cloud CLI), `openssl`, `nc`. Затем:
+   ```bash
+   git clone https://github.com/n0d33p/devops-engineer-from-scratch-project-318.git
+   cd devops-engineer-from-scratch-project-318
+   make bootstrap
+   ```
+2. **Приложение.** Форк `project-devops-deploy` (CI собирает Docker-образ и публикует его в Docker Hub); имя образа задано переменной `docker_image` в `ansible/group_vars/all/main.yml`.
+3. **Yandex Cloud.** `yc init`, затем сервисный аккаунт с ролью `storage.editor` и статический ключ доступа (консоль или `yc iam ...`). Ключ пойдёт в Vault.
+4. **SSH-ключ.** `ssh-keygen -t ed25519`; публичную часть подставить в `cloud-init.yaml` (пример в разделе «Инфраструктура»).
+5. **Инфраструктура.** Выполнить команды из разделов «Создание ресурсов» и «Создание Monitoring VM»: App VM, кластер PostgreSQL, Security Group, Monitoring VM, правило для Loki (`yc vpc security-group update-rules ... port=3100 ... <приватный IP App VM>/32`), закрепление внешних адресов как статических.
+6. **Адреса и параметры.** Обновить `ansible/inventory.ini` (группы `webservers` и `monitoring`) и в `ansible/group_vars/all/main.yml`: `app_private_ip`, `monitoring_private_ip`, `monitoring_allowed_cidr`, `db_host`, `s3_bucket_name` (имя уникально в рамках Yandex Cloud). Один раз зайти по SSH на каждую ВМ и принять отпечаток.
+7. **Секреты.** Создать зашифрованные файлы и заполнить переменные из таблицы «Секреты»:
+   ```bash
+   ansible-vault create ansible/group_vars/servers/vault.yml
+   ansible-vault create ansible/group_vars/localnode/vault.yml
+   openssl rand -hex 16        # для паролей Grafana, метрик и базы
+   docker run --rm httpd:2.4-alpine htpasswd -nbBC 10 reviewer '<пароль>' | cut -d: -f2   # хэш для Prometheus
+   ```
+   Пароль приложения почты создаётся в Яндекс ID (раздел безопасности).
+8. **Развёртывание.** `make deploy` (спросит пароль Vault): создаёт бакет, настраивает обе ВМ, поднимает приложение, экспортёры, Nginx, Prometheus, Grafana, Loki и Promtail. Плейбуки идемпотентны: повторный запуск ничего не ломает.
+9. **Проверка.** `make test`, `make smoke`, `make e2e-logs`, затем ручной чек-лист ниже.
+
+Если ВМ пересоздана или адрес сменился: обновить адреса (шаг 6), принять новые отпечатки SSH и выполнить `make deploy`.
+
+## Проверки
+
+| Команда | Что проверяет |
+|---|---|
+| `make lint` | `ansible-lint`, синтаксис Python- и bash-скриптов |
+| `make test` | lint, актуальность сгенерированных дашбордов и правил, `promtool` для правил Prometheus, синтаксис плейбука, `ansible ping` всех хостов |
+| `make smoke` | живая инфраструктура: REST и статика приложения, Swagger, Grafana и число дашбордов, 401 у Prometheus без пароля, все таргеты `up`, `nginx_up`, готовность Loki, сервисы и контейнеры, закрытые снаружи порты |
+| `make e2e-logs` | тестовая строка проходит Nginx, Promtail, Loki |
+| `make promtool`, `make promtool-config` | правила и конфигурация Prometheus |
+
+Для проверки таргетов Prometheus в `make smoke` нужен пароль: `read -rs PROM_PASSWORD; export PROM_PASSWORD`. Без него эта часть пропускается (`SKIP`). Адреса скрипты берут из `inventory.ini` и `group_vars/all/main.yml`, в них ничего не зашито.
+
+### Ручной чек-лист
+
+1. Обе ВМ отвечают: `make test` (`pong` от всех хостов).
+2. Приложение: открыть http://178.154.234.125/ (статика) и `/api/bulletins` (REST).
+3. Grafana: дашборды «Системные ресурсы», «Состояние приложения», «Nginx» показывают метрики; «Логи (Loki)» показывает логи; Status Page зелёный.
+4. Логи: `make e2e-logs`, строку можно найти в Grafana (Explore, Loki).
+5. Алерты можно вызвать вручную: инструкции в разделах «Как вызвать тестовый алерт» и «Как вызвать алерт по логам».
+
 ## Инфраструктура (Yandex Cloud)
 
 | Ресурс | Параметры |
@@ -104,7 +212,7 @@ make promtool                     # проверка правил алертин
 
 Требования: Ansible 2.15+, `python3-boto3` (для создания бакета), доступ по SSH к `app-vm-d` и `monitoring-vm-e`, пароль от Vault.
 
-## Проверка
+## Быстрая проверка приложения
 
 ```bash
 curl -i http://178.154.234.125/api/bulletins
@@ -397,7 +505,7 @@ make e2e-logs
 2. Через 2–4 минуты правило «Всплеск 5xx в логах Nginx» перейдёт в Firing, придёт письмо.
 3. Вернуть: `ssh wh0am1@178.154.234.125 'docker start bulletin-board-app-1'`.
 
-![Дашборд логов](assets/dashboard-logs.png)
+![Дашборд логов](assets/dashboard-loki.png)
 ![Сквозная проверка](assets/e2e-logs.png)
 ![Алерт по логам](assets/alert-logs.png)
 ![Алерт: приложение недоступно](assets/alert-app-down.png)
