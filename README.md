@@ -318,3 +318,5 @@ make gen-alerts       # пересобрать правила из scripts/gen_a
 make gen-dashboards   # пересобрать дашборды и Status Page
 make dashboards       # выкатить правила и дашборды на сервер мониторинга
 ```
+
+> Примечание: Prometheus тоже вычисляет правила из `ansible/roles/monitoring/files/alerts.yml` (`InstanceDown` и другие), поэтому на Status Page рядом с правилами Grafana видны и они. Alertmanager в проекте не используется: письма отправляет только Grafana Alerting.
